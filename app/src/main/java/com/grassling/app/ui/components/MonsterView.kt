@@ -1,5 +1,14 @@
 package com.grassling.app.ui.components
 
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -11,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.semantics.contentDescription
@@ -20,9 +30,38 @@ import com.grassling.app.monster.Monster
 
 @Composable
 fun MonsterView(monster: Monster) {
+    val idleTransition = rememberInfiniteTransition(label = "monster-idle")
+    val bobAmount = idleTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1_100, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "idle-bob",
+    )
+    val blinkProgress = idleTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 3_400
+                0f at 0
+                0f at 1_500
+                1f at 1_540 using FastOutLinearInEasing
+                1f at 1_600
+                0f at 1_640 using LinearOutSlowInEasing
+                0f at 3_400
+            },
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "idle-blink",
+    )
+
     Canvas(
         modifier = Modifier
             .size(240.dp)
+            .graphicsLayer { translationY = -bobAmount.value * 3.dp.toPx() }
             .semantics { contentDescription = "Monstro ${monster.name}" },
     ) {
         val factor = size.minDimension / 240f
@@ -71,10 +110,35 @@ fun MonsterView(monster: Monster) {
             drawCircle(Color(0x5577B957), radius = 9f, center = Offset(71f, 137f))
             drawCircle(Color(0x5577B957), radius = 9f, center = Offset(169f, 137f))
 
+            val eyeOpenness = 1f - blinkProgress.value
             listOf(Offset(91f, 112f), Offset(150f, 112f)).forEach { eye ->
-                drawCircle(Color(0xFFF8FFF2), radius = 13f, center = eye)
-                drawCircle(Color(0xFF285B35), radius = 7f, center = eye + Offset(2f, 2f))
-                drawCircle(Color.White, radius = 2.2f, center = eye + Offset(-1f, -1f))
+                if (eyeOpenness > 0.1f) {
+                    val eyeHeight = 26f * eyeOpenness
+                    val pupilHeight = 14f * eyeOpenness
+                    drawOval(
+                        color = Color(0xFFF8FFF2),
+                        topLeft = Offset(eye.x - 13f, eye.y - eyeHeight / 2f),
+                        size = Size(26f, eyeHeight),
+                    )
+                    drawOval(
+                        color = Color(0xFF285B35),
+                        topLeft = Offset(eye.x - 5f, eye.y + 2f - pupilHeight / 2f),
+                        size = Size(14f, pupilHeight),
+                    )
+                    drawCircle(
+                        color = Color.White,
+                        radius = 2.2f * eyeOpenness,
+                        center = eye + Offset(-1f, -eyeOpenness),
+                    )
+                } else {
+                    drawLine(
+                        color = Color(0xFF285B35),
+                        start = Offset(eye.x - 11f, eye.y),
+                        end = Offset(eye.x + 11f, eye.y),
+                        strokeWidth = 3.5f,
+                        cap = StrokeCap.Round,
+                    )
+                }
             }
 
             val smile = Path().apply {
