@@ -32,6 +32,8 @@ dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
 
     val roomVersion = "2.8.5"
     implementation("androidx.room:room-runtime:$roomVersion")
