@@ -15,7 +15,7 @@ class MainActivity : ComponentActivity() {
         localAI = LlamaLocalAI(applicationContext)
         setContent {
             MaterialTheme {
-                HomeScreen(localAI)
+                HomeScreen()
             }
         }
     }
