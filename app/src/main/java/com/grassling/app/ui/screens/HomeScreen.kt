@@ -1,14 +1,22 @@
 package com.grassling.app.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.grassling.app.monster.Monster
@@ -16,20 +24,67 @@ import com.grassling.app.ui.components.MonsterView
 
 @Composable
 fun HomeScreen() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(Color(0xFFF0F8EC), Color(0xFFE3F1DD), Color(0xFFD5EACF)),
-                ),
-            ),
-        contentAlignment = Alignment.Center,
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = true,
+        drawerContent = {
+            ModalDrawerSheet {
+                QuestScreen()
+            }
+        },
     ) {
-        MonsterView(
-            monster = Monster(),
-            modifier = Modifier.size(240.dp),
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color(0xFFF0F8EC), Color(0xFFE3F1DD), Color(0xFFD5EACF)),
+                    ),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            MonsterView(
+                monster = Monster(),
+                modifier = Modifier.size(240.dp),
+            )
+            Canvas(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 12.dp)
+                    .size(24.dp),
+            ) {
+                val strokeWidth = 2.dp.toPx()
+                val centerY = size.height / 2f
+                val tipX = size.width - 3.dp.toPx()
+                val headStartX = tipX - 7.dp.toPx()
+                val headHalfHeight = 6.dp.toPx()
+                val arrowColor = Color(0xFF285B35)
+
+                drawLine(
+                    color = arrowColor,
+                    start = Offset(2.dp.toPx(), centerY),
+                    end = Offset(tipX, centerY),
+                    strokeWidth = strokeWidth,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    color = arrowColor,
+                    start = Offset(headStartX, centerY - headHalfHeight),
+                    end = Offset(tipX, centerY),
+                    strokeWidth = strokeWidth,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    color = arrowColor,
+                    start = Offset(tipX, centerY),
+                    end = Offset(headStartX, centerY + headHalfHeight),
+                    strokeWidth = strokeWidth,
+                    cap = StrokeCap.Round,
+                )
+            }
+        }
     }
 }
 
