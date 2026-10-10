@@ -2,6 +2,7 @@ package com.grassling.app.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -39,6 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -204,6 +206,10 @@ private fun HomeScreenContent(
         Text("Grassling", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF285B35))
         Text("Seu companheiro de todos os dias", style = MaterialTheme.typography.bodyMedium)
 
+        messages.lastOrNull { it.role == ChatRole.GRASSLING }?.let { latestSpeech ->
+            MonsterSpeechBubble(latestSpeech.content)
+        }
+
         MonsterView(
             monster = Monster(),
             modifier = Modifier
@@ -281,6 +287,42 @@ private fun HomeScreenContent(
             ) {
                 Text("Enviar")
             }
+        }
+    }
+}
+
+@Composable
+private fun MonsterSpeechBubble(text: String) {
+    Column(
+        modifier = Modifier
+            .widthIn(max = 380.dp)
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color.White,
+            shape = RoundedCornerShape(20.dp),
+            shadowElevation = 3.dp,
+        ) {
+            Text(
+                text = text,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                color = Color(0xFF24472B),
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Canvas(modifier = Modifier.size(width = 20.dp, height = 10.dp)) {
+            val tail = Path().apply {
+                moveTo(0f, 0f)
+                lineTo(size.width / 2f, size.height)
+                lineTo(size.width, 0f)
+                close()
+            }
+            drawPath(path = tail, color = Color.White)
         }
     }
 }
