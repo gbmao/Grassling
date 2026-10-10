@@ -44,7 +44,7 @@ fun HomeScreen() {
         gesturesEnabled = true,
         drawerContent = {
             ModalDrawerSheet {
-                QuestScreen()
+                QuestScreen(isVisible = drawerState.isOpen)
             }
         },
     ) {
