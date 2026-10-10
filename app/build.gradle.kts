@@ -19,18 +19,17 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++17"
+                arguments += "-DCMAKE_BUILD_TYPE=Release"
             }
+        }
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
         }
     }
 
     buildFeatures {
         compose = true
-    }
-
-    sourceSets["main"].assets.srcDir(rootProject.file("ai"))
-
-    androidResources {
-        noCompress += "gguf"
     }
 
     externalNativeBuild {
@@ -49,6 +48,9 @@ android {
 dependencies {
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
 
@@ -63,3 +65,12 @@ dependencies {
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
 }
+
+// Fail packaging if weights are accidentally added to any resource/asset source.
+val checkNoModelWeights by tasks.registering {
+    doLast {
+        val weights = fileTree("src") { include("**/*.gguf", "**/*.gguf.part") }
+        check(weights.isEmpty) { "Model weights must be downloaded into private storage, never packaged: ${weights.files}" }
+    }
+}
+tasks.named("preBuild") { dependsOn(checkNoModelWeights) }

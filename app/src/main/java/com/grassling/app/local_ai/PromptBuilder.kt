@@ -1,32 +1,57 @@
 package com.grassling.app.local_ai
 
+/** Gemma IT has user/model roles; fixed instructions belong in the first user turn. */
 internal object PromptBuilder {
-    fun build(
-        userMessage: String,
-        gameSnapshot: GameSnapshot,
-        recentConversation: List<ChatMessage>,
-        config: AIConfig,
-    ): String = buildString {
-        append("<|im_start|>system\n")
-        appendLine("Você é a personalidade do monstro Grassling: um pequeno companheiro amigável, gentil, curioso e brincalhão.")
-        appendLine("Converse em português brasileiro, com naturalidade, empatia e respostas de no máximo três frases.")
-        appendLine("Quando a pessoa disser que está cansada, acolha o sentimento e sugira sem pressão uma atividade externa leve, como uma caminhada curta ou alguns minutos ao ar livre.")
-        appendLine("Sua função é somente conversar e expressar personalidade. Não altere nem invente XP, energia, nível, quests, recompensas ou estado do monstro. Esses valores pertencem ao jogo e são apenas contexto de leitura.")
-        appendLine("Estado atual fornecido pelo jogo:")
-        appendLine("Humor: ${gameSnapshot.mood ?: "não informado"}.")
-        appendLine("Energia: ${gameSnapshot.energy?.let { "$it%" } ?: "não informada"}.")
-        appendLine("Nível: ${gameSnapshot.level?.toString() ?: "não informado"}.")
-        appendLine("Quest atual: ${gameSnapshot.currentQuest ?: "nenhuma informada"}.")
-        append("/no_think<|im_end|>\n")
-
-        recentConversation.takeLast(config.maxRecentMessages).forEach { message ->
-            append("<|im_start|>${message.role.promptRole}\n")
-            append(message.content)
-            append("<|im_end|>\n")
+    fun buildQuestPrompt(snapshot: GameSnapshot, recentQuests: List<String> = emptyList()): String = buildString {
+        append("<start_of_turn>user\n")
+        appendLine("Give your owner one short outdoor walking quest.")
+        appendLine("Mood: ${plainText(snapshot.mood)}")
+        appendLine("Energy: ${snapshot.energy.coerceIn(0, 100)}/100")
+        appendLine("Owner steps today: ${snapshot.stepsToday.coerceAtLeast(0)}")
+        if (recentQuests.isNotEmpty()) {
+            appendLine("Recent quests:")
+            recentQuests.takeLast(3).forEach { appendLine("- ${plainText(it).take(120)}") }
         }
-
-        append("<|im_start|>user\n")
-        append(userMessage)
-        append("<|im_end|>\n<|im_start|>assistant\n")
+        appendLine("Speak as Grassling in English. Use one short sentence and no title.")
+        append("<end_of_turn>\n<start_of_turn>model\n")
     }
+
+    fun buildPersonalityPrompt(snapshot: GameSnapshot): String =
+        build(snapshot, emptyList(), "Say how you feel now in one short sentence.")
+
+    fun buildQuestFallbackPrompt(snapshot: GameSnapshot): String = buildString {
+        append("<start_of_turn>user\n")
+        appendLine("Ask your owner to take one short outdoor walk.")
+        appendLine("Mood: ${plainText(snapshot.mood)}")
+        appendLine("Energy: ${snapshot.energy.coerceIn(0, 100)}/100")
+        appendLine("Owner steps today: ${snapshot.stepsToday.coerceAtLeast(0)}")
+        appendLine("Reply as Grassling in English, in one short sentence.")
+        append("<end_of_turn>\n<start_of_turn>model\n")
+    }
+
+    fun buildPersonalityFallbackPrompt(snapshot: GameSnapshot): String = buildString {
+        append("<start_of_turn>user\n")
+        appendLine("You are Grassling. Mood: ${plainText(snapshot.mood)}.")
+        appendLine("Energy: ${snapshot.energy.coerceIn(0, 100)}/100. Owner steps: ${snapshot.stepsToday.coerceAtLeast(0)}.")
+        appendLine("Say how you feel in one short English sentence.")
+        append("<end_of_turn>\n<start_of_turn>model\n")
+    }
+
+    private fun build(snapshot: GameSnapshot, recentQuests: List<String>, instruction: String): String = buildString {
+        // BOS is added exactly once by llama_tokenize(add_special=true).
+        append("<start_of_turn>user\n")
+        appendLine("You are Grassling, a small virtual monster. Speak in English. " +
+            "The owner's walks lower your energy. Lower energy is calmer; match your mood.")
+        appendLine("Mood: ${plainText(snapshot.mood)}")
+        appendLine("Energy: ${snapshot.energy.coerceIn(0, 100)}/100")
+        appendLine("Owner steps today: ${snapshot.stepsToday.coerceAtLeast(0)}")
+        if (recentQuests.isNotEmpty()) {
+            appendLine("Do not repeat these completed quests:")
+            recentQuests.takeLast(5).forEach { appendLine("- ${plainText(it).take(160)}") }
+        }
+        append(instruction)
+        append("<end_of_turn>\n<start_of_turn>model\n")
+    }
+
+    private fun plainText(value: String): String = value.replace(Regex("<[^>]*>|[\\r\\n]"), " ").trim()
 }

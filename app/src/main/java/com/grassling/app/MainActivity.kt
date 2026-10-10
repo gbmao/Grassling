@@ -4,24 +4,24 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
-import com.grassling.app.local_ai.LlamaLocalAI
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.grassling.app.local_ai.ModelSetupState
+import com.grassling.app.local_ai.ModelSetupViewModel
 import com.grassling.app.ui.screens.HomeScreen
+import com.grassling.app.ui.screens.ModelSetupScreen
 
 class MainActivity : ComponentActivity() {
-    private lateinit var localAI: LlamaLocalAI
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        localAI = LlamaLocalAI(applicationContext)
         setContent {
+            val setup: ModelSetupViewModel = viewModel()
+            val state by setup.state.collectAsStateWithLifecycle()
             MaterialTheme {
-                HomeScreen()
+                if (state == ModelSetupState.Ready) HomeScreen()
+                else ModelSetupScreen(state = state, onRetry = setup::retry)
             }
         }
-    }
-
-    override fun onDestroy() {
-        if (::localAI.isInitialized) localAI.close()
-        super.onDestroy()
     }
 }

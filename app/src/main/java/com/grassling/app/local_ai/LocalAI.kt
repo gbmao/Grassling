@@ -1,69 +1,74 @@
 package com.grassling.app.local_ai
 
 import android.content.Context
-import android.net.Uri
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.Closeable
-import java.io.File
 
 interface LocalAI : Closeable {
-    val modelFile: File
-    val isModelInstalled: Boolean
-
     suspend fun loadModel(): Result<Unit>
-
-    suspend fun importModel(uri: Uri): Result<Unit>
-
-    suspend fun respond(
-        message: String,
-        gameSnapshot: GameSnapshot = GameSnapshot(),
-        recentConversation: List<ChatMessage> = emptyList(),
-    ): Result<String>
+    suspend fun generatePersonality(snapshot: GameSnapshot): Result<String>
+    suspend fun generateQuest(snapshot: GameSnapshot, recentQuests: List<String> = emptyList()): Result<String>
 }
 
-class LlamaLocalAI(
-    context: Context,
-    private val config: AIConfig = AIConfig(),
-) : LocalAI {
+class LlamaLocalAI(context: Context, private val config: AIConfig = AIConfig()) : LocalAI {
     private val engine = LlamaEngine(config)
-    private val modelManager = ModelManager(context, config, engine)
+    private val modelManager = ModelManager(context)
 
-    override val modelFile: File
-        get() = modelManager.modelFile
-
-    override val isModelInstalled: Boolean
-        get() = modelManager.modelExists()
-
-    override suspend fun loadModel(): Result<Unit> = runCatching {
-        modelManager.loadModel()
+    override suspend fun loadModel(): Result<Unit> = withContext(Dispatchers.IO) {
+        result {
+            if (!engine.isLoaded) {
+                check(modelManager.isModelInstalled()) { "The AI model is not installed or failed verification." }
+                engine.loadModel(modelManager.getModelFile().absolutePath)
+            }
+        }
     }
 
-    override suspend fun importModel(uri: Uri): Result<Unit> = runCatching {
-        modelManager.installModel(uri)
-        modelManager.loadModel()
-    }
-
-    override suspend fun respond(
-        message: String,
-        gameSnapshot: GameSnapshot,
-        recentConversation: List<ChatMessage>,
-    ): Result<String> = runCatching {
-        require(message.isNotBlank()) { "Escreva uma mensagem antes de conversar." }
-        check(engine.isLoaded) { "Carregue o modelo GGUF antes de conversar." }
-
-        val prompt = PromptBuilder.build(
-            userMessage = message,
-            gameSnapshot = gameSnapshot,
-            recentConversation = recentConversation,
-            config = config,
+    override suspend fun generatePersonality(snapshot: GameSnapshot): Result<String> =
+        generate(
+            PromptBuilder.buildPersonalityPrompt(snapshot),
+            PromptBuilder.buildPersonalityFallbackPrompt(snapshot),
         )
-        withContext(Dispatchers.Default) {
-            engine.generate(prompt)
-        }.trim()
+
+    override suspend fun generateQuest(snapshot: GameSnapshot, recentQuests: List<String>): Result<String> =
+        generate(
+            PromptBuilder.buildQuestPrompt(snapshot, recentQuests),
+            PromptBuilder.buildQuestFallbackPrompt(snapshot),
+            requireWalkQuest = true,
+        )
+
+    private suspend fun generate(
+        prompt: String,
+        fallbackPrompt: String,
+        requireWalkQuest: Boolean = false,
+    ): Result<String> = withContext(Dispatchers.Default) {
+        result {
+            var response = ""
+            repeat(3) { attempt ->
+                val needsRetry = response.isBlank() ||
+                    (requireWalkQuest && !WALK_QUEST_PATTERN.containsMatchIn(response))
+                if (needsRetry) {
+                    val attemptPrompt = if (attempt == 0) prompt else fallbackPrompt
+                    response = engine.generate(attemptPrompt).trim()
+                }
+            }
+            response
+        }
     }
 
-    override fun close() {
-        modelManager.close()
+    // The Application owns this instance. Call close off the UI thread for explicit teardown/tests.
+    override fun close() = engine.releaseModel()
+
+    private inline fun <T> result(block: () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        Result.failure(failure)
+    }
+
+    private companion object {
+        val WALK_QUEST_PATTERN = Regex("\\b(walk|walking|stroll|steps?|minutes?)\\b", RegexOption.IGNORE_CASE)
     }
 }
