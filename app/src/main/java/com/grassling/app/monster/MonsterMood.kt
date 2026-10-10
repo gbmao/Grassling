@@ -1,7 +1,8 @@
 package com.grassling.app.monster
 
 enum class MonsterMood {
-    CALM,
-    HAPPY,
-    SAD,
+    SLEEPING,
+    NORMAL,
+    ANXIOUS,
+    EXPLODING_WITH_RAGE,
 }

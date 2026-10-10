@@ -10,8 +10,13 @@ import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -25,11 +30,15 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.grassling.app.monster.Monster
+import com.grassling.app.monster.MonsterMood
 
 @Composable
 fun MonsterView(monster: Monster, modifier: Modifier = Modifier) {
+    val sleeping = monster.mood == MonsterMood.SLEEPING
     val idleTransition = rememberInfiniteTransition(label = "monster-idle")
     val bobAmount = idleTransition.animateFloat(
         initialValue = 0f,
@@ -57,13 +66,41 @@ fun MonsterView(monster: Monster, modifier: Modifier = Modifier) {
         ),
         label = "idle-blink",
     )
+    val breathing = idleTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1_800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "sleep-breathing",
+    )
+    val zzzFloat = idleTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1_700, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "sleep-zzz",
+    )
 
-    Canvas(
-        modifier = modifier
-            .size(240.dp)
-            .graphicsLayer { translationY = -bobAmount.value * 3.dp.toPx() }
-            .semantics { contentDescription = "Monstro ${monster.name}" },
-    ) {
+    Box(modifier = modifier.size(240.dp)) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    if (sleeping) {
+                        val breathScale = 1f + breathing.value * 0.018f
+                        scaleX = breathScale
+                        scaleY = breathScale
+                        translationY = breathing.value * 1.5.dp.toPx()
+                    } else {
+                        translationY = -bobAmount.value * 3.dp.toPx()
+                    }
+                }
+                .semantics { contentDescription = "Monstro ${monster.name}" },
+        ) {
         val factor = size.minDimension / 240f
 
         withTransform({ scale(factor, factor, pivot = Offset.Zero) }) {
@@ -110,7 +147,7 @@ fun MonsterView(monster: Monster, modifier: Modifier = Modifier) {
             drawCircle(Color(0x5577B957), radius = 9f, center = Offset(71f, 137f))
             drawCircle(Color(0x5577B957), radius = 9f, center = Offset(169f, 137f))
 
-            val eyeOpenness = 1f - blinkProgress.value
+            val eyeOpenness = if (sleeping) 0f else 1f - blinkProgress.value
             listOf(Offset(91f, 112f), Offset(150f, 112f)).forEach { eye ->
                 if (eyeOpenness > 0.1f) {
                     val eyeHeight = 26f * eyeOpenness
@@ -149,6 +186,22 @@ fun MonsterView(monster: Monster, modifier: Modifier = Modifier) {
                 path = smile,
                 color = Color(0xFF285B35),
                 style = Stroke(width = 4f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+            )
+        }
+    }
+        if (sleeping) {
+            Text(
+                text = "ZzZzZz",
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(x = 34.dp)
+                    .graphicsLayer {
+                        translationY = -zzzFloat.value * 11.dp.toPx()
+                        alpha = 0.78f + zzzFloat.value * 0.22f
+                    },
+                color = Color(0xFF6473B5),
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
             )
         }
     }
