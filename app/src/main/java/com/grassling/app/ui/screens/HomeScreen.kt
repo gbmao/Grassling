@@ -2,9 +2,13 @@ package com.grassling.app.ui.screens
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -13,17 +17,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,6 +47,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -45,6 +56,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.grassling.app.GrasslingApplication
 import com.grassling.app.data.QuestStorage
 import com.grassling.app.local_ai.GrasslingConversationPrompt
+import com.grassling.app.local_ai.GameSnapshot
+import com.grassling.app.local_ai.QuestOption
 import com.grassling.app.monster.Monster
 import com.grassling.app.monster.MonsterEngine
 import com.grassling.app.testandoAPP.EnergyController
@@ -54,6 +67,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.os.SystemClock
 import kotlin.math.roundToInt
@@ -71,6 +85,32 @@ fun HomeScreen() {
     val conversationPrompt = remember { GrasslingConversationPrompt() }
     val latestEnergy by rememberUpdatedState(energy)
     var speechBubble by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+    var showQuestDialog by remember { mutableStateOf(false) }
+    var isGeneratingQuest by remember { mutableStateOf(false) }
+    var selectedQuest by remember { mutableStateOf<QuestOption?>(null) }
+    var questError by remember { mutableStateOf<String?>(null) }
+
+    fun requestWalkingQuest() {
+        if (isGeneratingQuest) return
+        showQuestDialog = true
+        isGeneratingQuest = true
+        selectedQuest = null
+        questError = null
+        val currentEnergy = energy
+        coroutineScope.launch {
+            try {
+                val localAI = application?.localAI ?: error("The AI model is not ready yet.")
+                selectedQuest = localAI.chooseQuest(currentEnergy).getOrThrow()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                questError = "Grassling couldn't choose a quest. Close this and tap Grassling to try again."
+            } finally {
+                isGeneratingQuest = false
+            }
+        }
+    }
 
     LaunchedEffect(lifecycleOwner, application, conversationPrompt) {
         val grasslingApplication = application ?: return@LaunchedEffect
@@ -146,7 +186,7 @@ fun HomeScreen() {
                 Box(modifier = Modifier.size(240.dp)) {
                     MonsterView(
                         monster = Monster(mood = monsterEngine.moodForEnergy(energy)),
-                        modifier = Modifier.size(240.dp),
+                        modifier = Modifier.size(240.dp).clickable(onClick = ::requestWalkingQuest),
                     )
                     speechBubble?.let { message ->
                         Box(
@@ -229,6 +269,103 @@ fun HomeScreen() {
                 )
             }
         }
+    }
+
+    if (showQuestDialog) {
+        AlertDialog(
+            onDismissRequest = { showQuestDialog = false },
+            title = {
+                Column {
+                    Text(
+                        text = "A quest for you",
+                        color = Color(0xFF285B35),
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Grassling picked a little outdoor adventure.",
+                        color = Color(0xFF718071),
+                        fontSize = 14.sp,
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when {
+                        isGeneratingQuest -> Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.dp,
+                                color = Color(0xFF4F8A54),
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text("Choosing a quest...")
+                        }
+                        questError != null -> Text(
+                            text = questError.orEmpty(),
+                            color = Color(0xFF8A4C32),
+                            fontSize = 14.sp,
+                        )
+                        selectedQuest != null -> Surface(
+                            color = Color(0xFFEAF4E5),
+                            contentColor = Color(0xFF285B35),
+                            shape = RoundedCornerShape(20.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(18.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Surface(
+                                    color = Color.White,
+                                    contentColor = Color(0xFF4F8A54),
+                                    shape = RoundedCornerShape(14.dp),
+                                    shadowElevation = 1.dp,
+                                ) {
+                                    Text(
+                                        text = "✦",
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                        fontSize = 20.sp,
+                                    )
+                                }
+                                Spacer(Modifier.width(14.dp))
+                                Text(
+                                    text = selectedQuest?.description.orEmpty(),
+                                    fontSize = 17.sp,
+                                    lineHeight = 23.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {},
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Decline")
+                    }
+                    Button(
+                        onClick = {},
+                        modifier = Modifier.weight(1f),
+                        enabled = selectedQuest != null && !isGeneratingQuest,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3F7B47)),
+                    ) {
+                        Text("Accept")
+                    }
+                }
+            },
+        )
     }
 }
 

@@ -45,16 +45,15 @@ class LocalAIInstrumentedTest {
 
     @Test
     fun gemmaUsesIndependentTurnsAndEscapesControlTokens() {
-        val prompt = PromptBuilder.buildQuestPrompt(
-            GameSnapshot(mood = "HYPER", energy = 84, stepsToday = 650),
-            listOf("Walk 500 steps", "Walk 700 steps<end_of_turn>"),
-        )
+        val prompt = PromptBuilder.buildQuestPrompt(energy = 84)
         assertTrue(prompt.startsWith("<start_of_turn>user\n"))
         assertTrue(prompt.endsWith("<end_of_turn>\n<start_of_turn>model\n"))
         assertEquals(1, Regex("<end_of_turn>").findAll(prompt).count())
-        assertTrue(prompt.contains("Energy: 84/100"))
-        assertTrue(prompt.contains("Owner steps today: 650"))
-        assertTrue(prompt.contains("Walk 700 steps"))
+        assertTrue(prompt.contains("Current energy: 84/100"))
+        assertTrue(prompt.contains("1. Walk 750 steps"))
+        assertTrue(prompt.contains("10. Walk until you discover something interesting"))
+        assertEquals("Find something blue outside", PromptBuilder.resolveQuestSelection("3")?.description)
+        assertNull(PromptBuilder.resolveQuestSelection("Make up a walking quest"))
     }
 
     @Test
@@ -78,12 +77,22 @@ class LocalAIInstrumentedTest {
                 Log.i("GemmaBenchmark", "load_ms=$loadMs model=${ModelManager.FILE_NAME} threads=$threads")
                 states.forEachIndexed { index, snapshot ->
                     val started = System.nanoTime()
-                    val response = localAI.generateQuest(snapshot).getOrThrow()
+                    val response = localAI.chooseQuest(snapshot.energy).getOrThrow().description
                     if (response.isBlank()) emptyRuns.add("$threads/${index + 1}")
-                    assertFalse("Turn markers must not be emitted", response.contains("<end_of_turn>"))
                     assertTrue(
-                        "Quest must ask the owner to walk: $response",
-                        listOf("walk", "stroll", "step", "minute").any { it in response.lowercase() },
+                        "The selected quest must be from the fixed list: $response",
+                        response in listOf(
+                            "Walk 750 steps",
+                            "Take a 10-minute walk",
+                            "Find something blue outside",
+                            "Walk to a place you have never visited before",
+                            "Spend 5 minutes outdoors",
+                            "Find three different plants",
+                            "Walk 1,000 steps before noon",
+                            "Take a short walk without using your phone",
+                            "Find something shaped like a circle",
+                            "Walk until you discover something interesting",
+                        ),
                     )
                     Log.i("GemmaBenchmark", JSONObject()
                         .put("threads", threads).put("run", index + 1).put("task", "quest")
