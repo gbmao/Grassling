@@ -90,9 +90,30 @@ fun HomeScreen() {
     var isGeneratingQuest by remember { mutableStateOf(false) }
     var selectedQuest by remember { mutableStateOf<QuestOption?>(null) }
     var questError by remember { mutableStateOf<String?>(null) }
+    var activeQuest by remember { mutableStateOf<QuestStorage.StoredQuest?>(null) }
+    var isCheckingActiveQuest by remember { mutableStateOf(true) }
+    var isSavingQuest by remember { mutableStateOf(false) }
+    var questStorageUnavailable by remember { mutableStateOf(false) }
+
+    LaunchedEffect(context) {
+        try {
+            activeQuest = withContext(Dispatchers.IO) {
+                QuestStorage(context.applicationContext).getActiveQuest()
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            questStorageUnavailable = true
+        } finally {
+            isCheckingActiveQuest = false
+        }
+    }
 
     fun requestWalkingQuest() {
-        if (isGeneratingQuest) return
+        if (
+            isCheckingActiveQuest || questStorageUnavailable || activeQuest != null ||
+            isGeneratingQuest || isSavingQuest || showQuestDialog
+        ) return
         showQuestDialog = true
         isGeneratingQuest = true
         selectedQuest = null
@@ -108,6 +129,39 @@ fun HomeScreen() {
                 questError = "Grassling couldn't choose a quest. Close this and tap Grassling to try again."
             } finally {
                 isGeneratingQuest = false
+            }
+        }
+    }
+
+    fun acceptSelectedQuest() {
+        val quest = selectedQuest ?: return
+        if (isSavingQuest || activeQuest != null) return
+        isSavingQuest = true
+        questError = null
+        coroutineScope.launch {
+            try {
+                val (wasAdded, currentQuest) = withContext(Dispatchers.IO) {
+                    val storage = QuestStorage(context.applicationContext)
+                    storage.addActiveQuest(
+                        QuestStorage.StoredQuest(
+                            description = quest.description,
+                            targetSteps = quest.targetSteps,
+                        ),
+                    ) to storage.getActiveQuest()
+                }
+                activeQuest = currentQuest
+                if (wasAdded || activeQuest != null) {
+                    selectedQuest = null
+                    showQuestDialog = false
+                } else {
+                    questError = "Grassling couldn't save this quest. Please try again."
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                questError = "Grassling couldn't save this quest. Please try again."
+            } finally {
+                isSavingQuest = false
             }
         }
     }
@@ -186,7 +240,11 @@ fun HomeScreen() {
                 Box(modifier = Modifier.size(240.dp)) {
                     MonsterView(
                         monster = Monster(mood = monsterEngine.moodForEnergy(energy)),
-                        modifier = Modifier.size(240.dp).clickable(onClick = ::requestWalkingQuest),
+                        modifier = Modifier.size(240.dp).clickable(
+                            enabled = !isCheckingActiveQuest && !questStorageUnavailable && activeQuest == null &&
+                                !isSavingQuest && !showQuestDialog,
+                            onClick = ::requestWalkingQuest,
+                        ),
                     )
                     speechBubble?.let { message ->
                         Box(
@@ -304,6 +362,17 @@ fun HomeScreen() {
                             Spacer(Modifier.width(12.dp))
                             Text("Choosing a quest...")
                         }
+                        isSavingQuest -> Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.dp,
+                                color = Color(0xFF4F8A54),
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text("Saving your quest...")
+                        }
                         questError != null -> Text(
                             text = questError.orEmpty(),
                             color = Color(0xFF8A4C32),
@@ -356,9 +425,9 @@ fun HomeScreen() {
                         Text("Decline")
                     }
                     Button(
-                        onClick = {},
+                        onClick = ::acceptSelectedQuest,
                         modifier = Modifier.weight(1f),
-                        enabled = selectedQuest != null && !isGeneratingQuest,
+                        enabled = selectedQuest != null && !isGeneratingQuest && !isSavingQuest,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3F7B47)),
                     ) {
                         Text("Accept")

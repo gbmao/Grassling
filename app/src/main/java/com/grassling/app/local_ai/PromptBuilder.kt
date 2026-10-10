@@ -3,18 +3,19 @@ package com.grassling.app.local_ai
 data class QuestOption(
     val number: Int,
     val description: String,
+    val targetSteps: Int = 0,
 )
 
 /** Gemma IT has user/model roles; fixed instructions belong in the first user turn. */
 internal object PromptBuilder {
     private val questOptions = listOf(
-        QuestOption(1, "Walk 750 steps"),
+        QuestOption(1, "Walk 750 steps", 750),
         QuestOption(2, "Take a 10-minute walk"),
         QuestOption(3, "Find something blue outside"),
         QuestOption(4, "Walk to a place you have never visited before"),
         QuestOption(5, "Spend 5 minutes outdoors"),
         QuestOption(6, "Find three different plants"),
-        QuestOption(7, "Walk 1,000 steps before noon"),
+        QuestOption(7, "Walk 1,000 steps before noon", 1_000),
         QuestOption(8, "Take a short walk without using your phone"),
         QuestOption(9, "Find something shaped like a circle"),
         QuestOption(10, "Walk until you discover something interesting"),

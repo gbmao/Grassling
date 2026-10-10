@@ -50,23 +50,24 @@ private val QuestBackground = Color(0xFFF5F8F2)
 @Composable
 fun QuestScreen(isVisible: Boolean) {
     val context = LocalContext.current
+    var activeQuest by remember { mutableStateOf<QuestStorage.StoredQuest?>(null) }
     var completedQuests by remember { mutableStateOf(emptyList<QuestStorage.StoredQuest>()) }
     var isLoading by remember { mutableStateOf(false) }
 
     LaunchedEffect(isVisible, context) {
         if (isVisible) {
             isLoading = true
-            completedQuests = withContext(Dispatchers.IO) {
+            val quests = withContext(Dispatchers.IO) {
                 runCatching {
                     QuestStorage(context.applicationContext)
                         .loadQuests()
-                        .asSequence()
-                        .filter { it.completed }
-                        .sortedByDescending { it.completedAt.orEmpty() }
-                        .take(5)
-                        .toList()
                 }.getOrDefault(emptyList())
             }
+            activeQuest = quests.lastOrNull { !it.completed }
+            completedQuests = quests
+                .filter { it.completed }
+                .sortedByDescending { it.completedAt.orEmpty() }
+                .take(5)
             isLoading = false
         }
     }
@@ -88,7 +89,7 @@ fun QuestScreen(isVisible: Boolean) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Your latest completed quests",
+                    text = "Your active quest and recent wins",
                     color = Color(0xFF718071),
                     fontSize = 14.sp,
                 )
@@ -123,17 +124,35 @@ fun QuestScreen(isVisible: Boolean) {
                     CircularProgressIndicator(color = ForestGreen)
                 }
 
-                completedQuests.isEmpty() -> EmptyQuestHistory()
-
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    itemsIndexed(
-                        items = completedQuests,
-                        key = { index, quest -> "${quest.completedAt}-${quest.creationDate}-$index" },
-                    ) { _, quest ->
-                        CompletedQuestCard(quest = quest)
+                    activeQuest?.let { quest ->
+                        item(key = "active-${quest.creationDate}") {
+                            InProgressSection(quest = quest)
+                        }
+                    }
+                    item(key = "completed-header") {
+                        Text(
+                            text = "Completed",
+                            color = ForestGreen,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                    if (completedQuests.isEmpty()) {
+                        item(key = "empty-history") {
+                            EmptyQuestHistory(modifier = Modifier.height(180.dp))
+                        }
+                    } else {
+                        itemsIndexed(
+                            items = completedQuests,
+                            key = { index, quest -> "${quest.completedAt}-${quest.creationDate}-$index" },
+                        ) { _, quest ->
+                            CompletedQuestCard(quest = quest)
+                        }
                     }
                     item { Spacer(Modifier.height(16.dp)) }
                 }
@@ -143,9 +162,9 @@ fun QuestScreen(isVisible: Boolean) {
 }
 
 @Composable
-private fun EmptyQuestHistory() {
+private fun EmptyQuestHistory(modifier: Modifier = Modifier.fillMaxSize()) {
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -178,11 +197,73 @@ private fun EmptyQuestHistory() {
             )
             Spacer(Modifier.height(7.dp))
             Text(
-                text = "Complete a walking quest and it will show up here.",
+                text = "Complete a quest and it will show up here.",
                 color = Color(0xFF718071),
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center,
             )
+        }
+    }
+}
+
+@Composable
+private fun InProgressSection(quest: QuestStorage.StoredQuest) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = "In progress",
+            color = ForestGreen,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF4E5)),
+            border = BorderStroke(1.dp, Color(0xFFD5E7CF)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color.White),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "➜",
+                            color = ForestGreen,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = "In progress",
+                        color = ForestGreen,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Text(
+                    text = quest.description,
+                    color = Color(0xFF26372A),
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (quest.targetSteps > 0) {
+                    Surface(shape = RoundedCornerShape(50), color = Color.White) {
+                        Text(
+                            text = "${quest.targetSteps} steps",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            color = ForestGreen,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -230,17 +311,19 @@ private fun CompletedQuestCard(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = SoftGreen,
-                    ) {
-                        Text(
-                            text = "${quest.targetSteps} steps",
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                            color = ForestGreen,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
+                    if (quest.targetSteps > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = SoftGreen,
+                        ) {
+                            Text(
+                                text = "${quest.targetSteps} steps",
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                color = ForestGreen,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
                     }
                     Spacer(Modifier.weight(1f))
                     formatCompletionDate(quest.completedAt)?.let { date ->
