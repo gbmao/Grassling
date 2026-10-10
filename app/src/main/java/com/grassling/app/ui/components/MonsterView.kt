@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.grassling.app.monster.Monster
 
 @Composable
-fun MonsterView(monster: Monster) {
+fun MonsterView(monster: Monster, modifier: Modifier = Modifier) {
     val idleTransition = rememberInfiniteTransition(label = "monster-idle")
     val bobAmount = idleTransition.animateFloat(
         initialValue = 0f,
@@ -59,7 +59,7 @@ fun MonsterView(monster: Monster) {
     )
 
     Canvas(
-        modifier = Modifier
+        modifier = modifier
             .size(240.dp)
             .graphicsLayer { translationY = -bobAmount.value * 3.dp.toPx() }
             .semantics { contentDescription = "Monstro ${monster.name}" },
