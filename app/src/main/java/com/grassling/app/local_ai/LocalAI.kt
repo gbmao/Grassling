@@ -31,6 +31,9 @@ class LlamaLocalAI(context: Context, private val config: AIConfig = AIConfig()) 
             PromptBuilder.buildPersonalityFallbackPrompt(snapshot),
         )
 
+    /** Generates a standalone conversation turn using a caller-built Grassling prompt. */
+    suspend fun generateConversation(prompt: String): Result<String> = generate(prompt, prompt)
+
     override suspend fun generateQuest(snapshot: GameSnapshot, recentQuests: List<String>): Result<String> =
         generate(
             PromptBuilder.buildQuestPrompt(snapshot, recentQuests),
