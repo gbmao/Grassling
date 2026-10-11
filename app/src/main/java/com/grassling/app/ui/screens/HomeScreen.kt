@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
@@ -30,19 +31,21 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,10 +67,10 @@ import com.grassling.app.data.QuestStorage
 import com.grassling.app.local_ai.GrasslingConversationPrompt
 import com.grassling.app.local_ai.GameSnapshot
 import com.grassling.app.local_ai.QuestOption
+import com.grassling.app.monster.EnergyManager
 import com.grassling.app.monster.Monster
 import com.grassling.app.monster.MonsterEngine
 import com.grassling.app.quest.QuestTrackingMode
-import com.grassling.app.testandoAPP.EnergyController
 import com.grassling.app.ui.components.MonsterView
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -82,11 +85,13 @@ import kotlin.math.min
 @Composable
 fun HomeScreen() {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val energyController = remember { EnergyController() }
     val monsterEngine = remember { MonsterEngine() }
-    val energy = energyController.energy
     val context = LocalContext.current
     val application = remember(context) { context.applicationContext as? GrasslingApplication }
+    val energyManager = remember(context, application) {
+        application?.energyManager ?: EnergyManager(context)
+    }
+    val energy by energyManager.energy.collectAsState()
     val stepCounter = application?.stepCounterManager
     val lifecycleOwner = LocalLifecycleOwner.current
     val conversationPrompt = remember { GrasslingConversationPrompt() }
@@ -104,6 +109,15 @@ fun HomeScreen() {
     var pendingStepQuest by remember { mutableStateOf<QuestOption?>(null) }
     var currentQuestStepCount by remember { mutableStateOf(0) }
     var questHistoryRefreshKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(lifecycleOwner, energyManager) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (currentCoroutineContext().isActive) {
+                energyManager.refreshEnergy()
+                delay(ENERGY_REFRESH_INTERVAL_MS)
+            }
+        }
+    }
 
     LaunchedEffect(context) {
         try {
@@ -263,6 +277,7 @@ fun HomeScreen() {
                     )
                 }
                 if (completedQuest != null) {
+                    energyManager.rewardQuestCompletion()
                     activeQuest = null
                     currentQuestStepCount = 0
                     questHistoryRefreshKey += 1
@@ -397,15 +412,9 @@ fun HomeScreen() {
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "Energy: $energy / 100",
-                    color = Color(0xFF285B35),
-                )
-                Slider(
-                    value = energy.toFloat(),
-                    onValueChange = { energyController.changeEnergy(it.roundToInt()) },
-                    valueRange = 0f..100f,
-                    modifier = Modifier.width(260.dp),
+                EnergyMeter(
+                    energy = energy,
+                    onEnergyChange = { energyManager.setEnergy(it.roundToInt()) },
                 )
             }
             Canvas(
@@ -555,9 +564,75 @@ fun HomeScreen() {
     }
 }
 
+@Composable
+private fun EnergyMeter(energy: Int, onEnergyChange: (Float) -> Unit) {
+    val normalizedEnergy = energy.coerceIn(0, 100)
+    val energyColor = when (normalizedEnergy) {
+        in 0..59 -> Color(0xFF4F8A54)
+        in 60..79 -> Color(0xFFE0A23B)
+        else -> Color(0xFFD95F55)
+    }
+
+    Surface(
+        modifier = Modifier.width(280.dp),
+        color = Color.White.copy(alpha = 0.94f),
+        contentColor = Color(0xFF285B35),
+        shape = RoundedCornerShape(18.dp),
+        shadowElevation = 3.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Energy",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "$normalizedEnergy / 100",
+                    color = energyColor,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(12.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color(0xFFE7EEE4)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(normalizedEnergy / 100f)
+                        .height(12.dp)
+                        .background(energyColor, RoundedCornerShape(50)),
+                )
+            }
+            Slider(
+                value = normalizedEnergy.toFloat(),
+                onValueChange = onEnergyChange,
+                valueRange = 0f..100f,
+                colors = SliderDefaults.colors(
+                    thumbColor = energyColor,
+                    activeTrackColor = energyColor,
+                    inactiveTrackColor = Color(0xFFE7EEE4),
+                ),
+            )
+        }
+    }
+}
+
 private const val CONVERSATION_INTERVAL_MS = 10_000L
 private const val MAX_BUBBLE_DURATION_MS = 5_000L
 private const val STEP_PROGRESS_REFRESH_MS = 500L
+private const val ENERGY_REFRESH_INTERVAL_MS = 60_000L
 
 @Preview(showBackground = true)
 @Composable
