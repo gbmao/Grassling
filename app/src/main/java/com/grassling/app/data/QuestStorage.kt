@@ -3,6 +3,7 @@ package com.grassling.app.data
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import com.grassling.app.quest.QuestTrackingMode
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -21,6 +22,8 @@ class QuestStorage(context: Context) {
     data class StoredQuest(
         val description: String,
         val targetSteps: Int,
+        val targetMinutes: Int = 0,
+        val trackingMode: QuestTrackingMode = QuestTrackingMode.NONE,
         val completed: Boolean = false,
         val creationDate: String = currentTimestamp(),
         val completedAt: String? = null,
@@ -39,9 +42,24 @@ class QuestStorage(context: Context) {
 
         return List(jsonArray.length()) { index ->
             val quest = jsonArray.getJSONObject(index)
+            val description = quest.getString("description")
+            val targetSteps = quest.getInt("targetSteps")
+            val targetMinutes = quest.optInt("targetMinutes", inferTargetMinutes(description))
+            val trackingMode = quest.optString(
+                "trackingMode",
+                when {
+                    targetSteps > 0 -> QuestTrackingMode.STEPS.name
+                    targetMinutes > 0 -> QuestTrackingMode.MINUTES.name
+                    description.startsWith("Walk ", ignoreCase = true) ||
+                        description.startsWith("Take a short walk", ignoreCase = true) -> QuestTrackingMode.STEPS.name
+                    else -> QuestTrackingMode.NONE.name
+                },
+            ).let { value -> runCatching { QuestTrackingMode.valueOf(value) }.getOrDefault(QuestTrackingMode.NONE) }
             StoredQuest(
-                description = quest.getString("description"),
-                targetSteps = quest.getInt("targetSteps"),
+                description = description,
+                targetSteps = targetSteps,
+                targetMinutes = targetMinutes,
+                trackingMode = trackingMode,
                 completed = quest.getBoolean("completed"),
                 creationDate = quest.getString("creationDate"),
                 completedAt = if (quest.isNull("completedAt")) null else quest.getString("completedAt"),
@@ -59,6 +77,8 @@ class QuestStorage(context: Context) {
                 JSONObject()
                     .put("description", quest.description)
                     .put("targetSteps", quest.targetSteps)
+                    .put("targetMinutes", quest.targetMinutes)
+                    .put("trackingMode", quest.trackingMode.name)
                     .put("completed", quest.completed)
                     .put("creationDate", quest.creationDate)
                     .put("completedAt", quest.completedAt ?: JSONObject.NULL),
@@ -90,5 +110,13 @@ class QuestStorage(context: Context) {
             questsFile.writeText("[]", Charsets.UTF_8)
         }
     }
+
+    private fun inferTargetMinutes(description: String): Int =
+        Regex("\\b(\\d+)\\s*[- ]?minutes?\\b", RegexOption.IGNORE_CASE)
+            .find(description)
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
+            ?: 0
 
 }

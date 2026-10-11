@@ -38,21 +38,27 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.grassling.app.data.QuestStorage
+import com.grassling.app.quest.QuestTrackingMode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
 
 private val ForestGreen = Color(0xFF285B35)
 private val SoftGreen = Color(0xFFE6F2E1)
 private val QuestBackground = Color(0xFFF5F8F2)
 
 @Composable
-fun QuestScreen(isVisible: Boolean) {
+fun QuestScreen(isVisible: Boolean, currentStepCount: Int) {
     val context = LocalContext.current
     var activeQuest by remember { mutableStateOf<QuestStorage.StoredQuest?>(null) }
     var completedQuests by remember { mutableStateOf(emptyList<QuestStorage.StoredQuest>()) }
     var isLoading by remember { mutableStateOf(false) }
+    var elapsedQuestSeconds by remember { mutableStateOf(0L) }
 
     LaunchedEffect(isVisible, context) {
         if (isVisible) {
@@ -69,6 +75,18 @@ fun QuestScreen(isVisible: Boolean) {
                 .sortedByDescending { it.completedAt.orEmpty() }
                 .take(5)
             isLoading = false
+        }
+    }
+
+    LaunchedEffect(isVisible, activeQuest?.creationDate, activeQuest?.targetMinutes) {
+        val quest = activeQuest
+        if (!isVisible || quest?.trackingMode != QuestTrackingMode.MINUTES || quest.targetMinutes <= 0) {
+            elapsedQuestSeconds = 0L
+            return@LaunchedEffect
+        }
+        while (currentCoroutineContext().isActive) {
+            elapsedQuestSeconds = elapsedSecondsSince(quest.creationDate)
+            delay(1_000L)
         }
     }
 
@@ -130,7 +148,11 @@ fun QuestScreen(isVisible: Boolean) {
                 ) {
                     activeQuest?.let { quest ->
                         item(key = "active-${quest.creationDate}") {
-                            InProgressSection(quest = quest)
+                            InProgressSection(
+                                quest = quest,
+                                currentStepCount = currentStepCount,
+                                elapsedSeconds = elapsedQuestSeconds,
+                            )
                         }
                     }
                     item(key = "completed-header") {
@@ -207,7 +229,11 @@ private fun EmptyQuestHistory(modifier: Modifier = Modifier.fillMaxSize()) {
 }
 
 @Composable
-private fun InProgressSection(quest: QuestStorage.StoredQuest) {
+private fun InProgressSection(
+    quest: QuestStorage.StoredQuest,
+    currentStepCount: Int,
+    elapsedSeconds: Long,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             text = "In progress",
@@ -252,16 +278,22 @@ private fun InProgressSection(quest: QuestStorage.StoredQuest) {
                     fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
-                if (quest.targetSteps > 0) {
-                    Surface(shape = RoundedCornerShape(50), color = Color.White) {
-                        Text(
-                            text = "${quest.targetSteps} steps",
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            color = ForestGreen,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
+                when (quest.trackingMode) {
+                    QuestTrackingMode.STEPS -> {
+                        val progress = currentStepCount.coerceAtLeast(0)
+                        val text = if (quest.targetSteps > 0) {
+                            "$progress / ${quest.targetSteps} steps"
+                        } else {
+                            "$progress steps"
+                        }
+                        QuestProgressBadge(text)
+                    }
+                    QuestTrackingMode.MINUTES -> if (quest.targetMinutes > 0) {
+                        QuestProgressBadge(
+                            "${formatDuration(elapsedSeconds)} / ${formatDuration(quest.targetMinutes * 60L)}",
                         )
                     }
+                    QuestTrackingMode.NONE -> Unit
                 }
             }
         }
@@ -311,18 +343,31 @@ private fun CompletedQuestCard(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (quest.targetSteps > 0) {
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = SoftGreen,
-                        ) {
-                            Text(
-                                text = "${quest.targetSteps} steps",
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                color = ForestGreen,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                            )
+                    when {
+                        quest.targetSteps > 0 -> {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = SoftGreen,
+                            ) {
+                                Text(
+                                    text = "${quest.targetSteps} steps",
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                    color = ForestGreen,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                        }
+                        quest.targetMinutes > 0 -> {
+                            Surface(shape = RoundedCornerShape(50), color = SoftGreen) {
+                                Text(
+                                    text = "${quest.targetMinutes} min",
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                    color = ForestGreen,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
                         }
                     }
                     Spacer(Modifier.weight(1f))
@@ -337,6 +382,35 @@ private fun CompletedQuestCard(
             }
         }
     }
+}
+
+@Composable
+private fun QuestProgressBadge(text: String) {
+    Surface(shape = RoundedCornerShape(50), color = Color.White) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            color = ForestGreen,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+private fun elapsedSecondsSince(timestamp: String): Long {
+    val startTime = runCatching {
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+            isLenient = false
+        }.parse(timestamp)?.time
+    }.getOrNull() ?: System.currentTimeMillis()
+    return ((System.currentTimeMillis() - startTime) / 1_000L).coerceAtLeast(0L)
+}
+
+private fun formatDuration(totalSeconds: Long): String {
+    val minutes = totalSeconds.coerceAtLeast(0L) / 60L
+    val seconds = totalSeconds.coerceAtLeast(0L) % 60L
+    return "%02d:%02d".format(Locale.US, minutes, seconds)
 }
 
 private fun formatCompletionDate(timestamp: String?): String? {

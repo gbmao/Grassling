@@ -1,24 +1,28 @@
 package com.grassling.app.local_ai
 
+import com.grassling.app.quest.QuestTrackingMode
+
 data class QuestOption(
     val number: Int,
     val description: String,
+    val trackingMode: QuestTrackingMode = QuestTrackingMode.NONE,
     val targetSteps: Int = 0,
+    val targetMinutes: Int = 0,
 )
 
 /** Gemma IT has user/model roles; fixed instructions belong in the first user turn. */
 internal object PromptBuilder {
     private val questOptions = listOf(
-        QuestOption(1, "Walk 750 steps", 750),
-        QuestOption(2, "Take a 10-minute walk"),
+        QuestOption(1, "Walk 750 steps", QuestTrackingMode.STEPS, targetSteps = 750),
+        QuestOption(2, "Take a 10-minute walk", QuestTrackingMode.MINUTES, targetMinutes = 10),
         QuestOption(3, "Find something blue outside"),
-        QuestOption(4, "Walk to a place you have never visited before"),
-        QuestOption(5, "Spend 5 minutes outdoors"),
+        QuestOption(4, "Walk to a place you have never visited before", QuestTrackingMode.STEPS),
+        QuestOption(5, "Spend 5 minutes outdoors", QuestTrackingMode.MINUTES, targetMinutes = 5),
         QuestOption(6, "Find three different plants"),
-        QuestOption(7, "Walk 1,000 steps before noon", 1_000),
-        QuestOption(8, "Take a short walk without using your phone"),
+        QuestOption(7, "Walk 1,000 steps before noon", QuestTrackingMode.STEPS, targetSteps = 1_000),
+        QuestOption(8, "Take a short walk without using your phone", QuestTrackingMode.STEPS),
         QuestOption(9, "Find something shaped like a circle"),
-        QuestOption(10, "Walk until you discover something interesting"),
+        QuestOption(10, "Walk until you discover something interesting", QuestTrackingMode.STEPS),
     )
 
     fun buildQuestPrompt(energy: Int): String = buildQuestSelectionPrompt(energy, isRetry = false)
