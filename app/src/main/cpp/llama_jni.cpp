@@ -4,6 +4,7 @@
 #include "llama.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -20,6 +21,8 @@ struct EngineState {
     llama_model * model = nullptr;
     llama_context * context = nullptr;
     std::mutex mutex;
+    std::vector<llama_token> cachedPrompt;
+    int threadCount = 4;
 
     ~EngineState() {
         if (context != nullptr) {
@@ -151,6 +154,7 @@ bool setBatchTokens(
 
 jlong nativeLoadModel(JNIEnv * env, jobject, jstring path, jint contextSize, jint threadCount) {
     try {
+        const auto started = std::chrono::steady_clock::now();
         const std::string modelPath = toUtf8(env, path);
         if (modelPath.empty()) {
             throw std::runtime_error("The model path is empty.");
@@ -158,7 +162,7 @@ jlong nativeLoadModel(JNIEnv * env, jobject, jstring path, jint contextSize, jin
 
         std::call_once(g_backendOnce, [] {
             llama_log_set([](ggml_log_level level, const char * text, void *) {
-                if (level >= GGML_LOG_LEVEL_ERROR && text != nullptr) {
+                if (level == GGML_LOG_LEVEL_ERROR && text != nullptr) {
                     __android_log_write(ANDROID_LOG_ERROR, kLogTag, text);
                 }
             }, nullptr);
@@ -178,11 +182,18 @@ jlong nativeLoadModel(JNIEnv * env, jobject, jstring path, jint contextSize, jin
         contextParams.n_batch = static_cast<uint32_t>(contextSize);
         contextParams.n_threads = std::max(1, static_cast<int>(threadCount));
         contextParams.n_threads_batch = std::max(1, static_cast<int>(threadCount));
+        // Keep early Gemma SWA positions available for safe prefix reuse between independent requests.
+        contextParams.swa_full = true;
+        state->threadCount = contextParams.n_threads;
         state->context = llama_init_from_model(state->model, contextParams);
         if (state->context == nullptr) {
             throw std::runtime_error("llama.cpp could not allocate the inference context.");
         }
 
+        const double loadMs = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - started).count();
+        __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                "model_loaded load_ms=%.2f threads=%d context=%u", loadMs, state->threadCount, contextParams.n_ctx);
         return reinterpret_cast<jlong>(state.release());
     } catch (const std::exception & error) {
         __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Model load failed: %s", error.what());
@@ -211,7 +222,7 @@ jstring nativeGenerate(
         const std::string prompt = toUtf8(env, promptValue);
         std::lock_guard<std::mutex> lock(state->mutex);
 
-        llama_memory_clear(llama_get_memory(state->context), true);
+        const auto started = std::chrono::steady_clock::now();
         const llama_vocab * vocab = llama_model_get_vocab(state->model);
         const int32_t requiredTokens = llama_tokenize(
                 vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()), nullptr, 0, true, true);
@@ -232,7 +243,16 @@ jstring nativeGenerate(
             throw std::runtime_error("llama.cpp could not tokenize the prompt.");
         }
         if (promptTokenCount + maxTokens > static_cast<int32_t>(llama_n_ctx(state->context))) {
-            throw std::runtime_error("The conversation is too long for the configured model context.");
+            throw std::runtime_error("The prompt is too long for the configured model context.");
+        }
+
+        // Retain only identical prompt tokens, never previous generated answers or chat history.
+        size_t reused = 0;
+        const size_t reusable = std::min(state->cachedPrompt.size(), promptTokens.size() - 1);
+        while (reused < reusable && state->cachedPrompt[reused] == promptTokens[reused]) ++reused;
+        if (reused == 0 || !llama_memory_seq_rm(llama_get_memory(state->context), 0, static_cast<llama_pos>(reused), -1)) {
+            llama_memory_clear(llama_get_memory(state->context), true);
+            reused = 0;
         }
 
         std::unique_ptr<llama_sampler, decltype(&llama_sampler_free)> sampler(
@@ -256,11 +276,18 @@ jstring nativeGenerate(
         }
 
         std::string response;
-        const llama_token * inputTokens = promptTokens.data();
-        int32_t inputCount = promptTokenCount;
-        llama_pos position = 0;
+        const llama_token * inputTokens = promptTokens.data() + reused;
+        int32_t inputCount = promptTokenCount - static_cast<int32_t>(reused);
+        llama_pos position = static_cast<llama_pos>(reused);
+        llama_token nextToken = 0; // Must outlive every iteration that references it as the next input.
+        double promptMs = 0.0;
+        double decodeMs = 0.0;
+        double firstTokenMs = 0.0;
+        int32_t decodeCount = 0;
+        int32_t outputCount = 0;
 
         for (int32_t generated = 0; generated < maxTokens; ++generated) {
+            const auto stepStarted = std::chrono::steady_clock::now();
             if (!setBatchTokens(batch.get(), inputTokens, inputCount, position)) {
                 throw std::runtime_error("llama.cpp could not prepare the prompt batch.");
             }
@@ -269,7 +296,17 @@ jstring nativeGenerate(
             }
 
             position += inputCount;
-            const llama_token nextToken = llama_sampler_sample(sampler.get(), state->context, -1);
+            if (generated == 0) {
+                promptMs = std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - stepStarted).count();
+                state->cachedPrompt = promptTokens;
+            }
+            nextToken = llama_sampler_sample(sampler.get(), state->context, -1);
+            if (generated > 0) {
+                decodeMs += std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - stepStarted).count();
+                ++decodeCount;
+            }
             if (llama_vocab_is_eog(vocab, nextToken)) {
                 break;
             }
@@ -284,12 +321,26 @@ jstring nativeGenerate(
                 throw std::runtime_error("llama.cpp could not decode a generated token.");
             }
             response.append(piece.data(), static_cast<size_t>(pieceSize));
+            if (outputCount++ == 0) {
+                firstTokenMs = std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - started).count();
+            }
             inputTokens = &nextToken;
             inputCount = 1;
         }
 
+        __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                "inference threads=%d prompt_tokens=%d cached_tokens=%zu output_tokens=%d "
+                "time_to_first_token_ms=%.2f prompt_tokens_per_second=%.2f decode_tokens_per_second=%.2f last_token=%d",
+                state->threadCount, promptTokenCount, reused, outputCount, firstTokenMs,
+                1000.0 * (promptTokenCount - reused) / std::max(promptMs, 0.001),
+                1000.0 * decodeCount / std::max(decodeMs, 0.001), nextToken);
+
         return fromUtf8(env, response);
     } catch (const std::exception & error) {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        state->cachedPrompt.clear();
+        llama_memory_clear(llama_get_memory(state->context), true);
         __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Generation failed: %s", error.what());
         throwJava(env, error.what());
         return nullptr;

@@ -8,3 +8,4 @@ local.properties
 .cxx/
 
 *.gguf
+*.gguf.part

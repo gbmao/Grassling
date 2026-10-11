@@ -73,6 +73,17 @@ class QuestStorage(context: Context) {
         saveQuests(loadQuests() + quest)
     }
 
+    @Synchronized
+    fun getActiveQuest(): StoredQuest? = loadQuests().lastOrNull { !it.completed }
+
+    @Synchronized
+    fun addActiveQuest(quest: StoredQuest): Boolean {
+        val quests = loadQuests()
+        if (quests.any { !it.completed }) return false
+        saveQuests(quests + quest.copy(completed = false, completedAt = null))
+        return true
+    }
+
     private fun ensureFileExists() {
         questsFile.parentFile?.mkdirs()
         if (!questsFile.exists()) {

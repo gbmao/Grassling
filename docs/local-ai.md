@@ -1,32 +1,44 @@
-# IA local do Grassling
+# Grassling local AI
 
-## Estrutura
+Grassling uses [Gemma 3 270M IT Q8_0](https://huggingface.co/ggml-org/gemma-3-270m-it-GGUF) through the existing llama.cpp/JNI bridge. Inference is entirely local. The network is used only to install the weights.
 
-O pacote `app/src/main/java/com/grassling/app/local_ai` contém a interface `LocalAI`, a integração JNI com `llama.cpp`, o gerenciamento do arquivo GGUF, a configuração e o construtor de prompts. O código de inferência não chama serviços de IA em nuvem.
+## Installation
 
-`app/src/main/cpp/CMakeLists.txt` busca uma revisão fixa do `llama.cpp` e compila somente a biblioteca nativa necessária para `arm64-v8a` e `x86_64`. O NDK e o CMake são definidos em `app/build.gradle.kts`.
+On startup `ModelSetupViewModel` checks the model on `Dispatchers.IO`. If it is missing or invalid, `ModelDownloadWorker` downloads it automatically using unique WorkManager work. Activity recreation reconnects to the same job; process interruption preserves the partial file and work can resume when Android schedules it again. A force-stopped app resumes after the next launch.
 
-## Modelo e instalação
+- Destination: `filesDir/models/gemma-3-270m-it-Q8_0.gguf`
+- Temporary file: `gemma-3-270m-it-Q8_0.gguf.part` in the same directory
+- Revision: `e7647be17ae1108f2f605ed061ca0608b171afff`
+- Expected size: `291545600` bytes
+- SHA-256: `0ef57d2c838458a1952664260dcba38e5bdda37494f3af732f06e4add24068e3`
 
-O modelo escolhido é `Qwen3-0.6B-Q8_0.gguf`, uma versão GGUF Q8_0 do repositório oficial Qwen. O arquivo tem cerca de 640 MB e não é incluído no APK. Baixe-o de [Qwen/Qwen3-0.6B-GGUF](https://huggingface.co/Qwen/Qwen3-0.6B-GGUF), transfira-o ao dispositivo e use **Importar modelo GGUF** na tela inicial. O app valida o cabeçalho e guarda uma cópia em `filesDir/local_ai/models/Qwen3-0.6B-Q8_0.gguf`.
+The size, GGUF header and SHA-256 must match before atomic rename and before loading. Range downloads resume a partial file; if the server ignores Range, it restarts that file safely. Network/storage errors show a Retry button. A failed partial file is never passed to JNI. Completed corrupt downloads are discarded. WorkManager interruptions retain partial bytes.
 
-Após a importação, o modelo e a biblioteca nativa funcionam sem conexão. A primeira sincronização/build busca o código-fonte fixado de `llama.cpp` pelo CMake.
+`ModelManager` exposes `isModelInstalled`, `downloadModel`, `getModelFile`, `deleteModel`, and `retryDownload` (enqueue/reconnect to persistent work). Call synchronous filesystem methods on an IO dispatcher. Before deleting an installed model, cancel/await any download and close the AI off the main thread.
 
-## Teste de conversa
+No weights belong in Git, assets, resources or the APK. The previous `ai` assets source is removed, `.gguf` and `.gguf.part` are ignored, and `preBuild` rejects weights under `app/src`. Model terms: https://ai.google.dev/gemma/terms.
 
-Com o GGUF já importado e o app/emulador instalado:
+## Inference
 
-```bash
-./gradlew :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.grassling.app.local_ai.LocalAIInstrumentedTest
+`GrasslingApplication` owns one lazy `LlamaLocalAI` instance per process. Native library initialization, model loading and validation happen off the UI thread. The loaded model/context survive Activity recreation. Explicit close is reserved for teardown/tests.
+
+Defaults: 4 threads, 2048 context tokens, at most 32 generated tokens. Native code is compiled with CMake Release for arm64-v8a and x86_64 (emulator). Android ARM64 uses the portable ARM/NEON implementation from the pinned llama.cpp version. No newer device-specific instruction set is forced.
+
+The JNI engine retains identical prompt tokens and drops all previous output tokens before each independent request. Full SWA cache storage keeps Gemma's prefix available; failed sequence removal falls back to clearing the cache. Errors invalidate the cache. There is no conversation history. The current bridge returns complete short responses; it had no streaming API to retain.
+
+`PromptBuilder` uses Gemma's `user`/`model` format and places character instructions in the first user turn; llama.cpp adds BOS. See https://ai.google.dev/gemma/docs/core/prompt-structure. Fixed prompt tokens are reused through the KV prefix cache rather than replayed as new conversation turns.
+
+`LocalAI.generatePersonality(snapshot)` and `generateQuest(snapshot, recentQuests)` accept read-only energy, mood and owner walking activity. Kotlin owns all game state. These APIs do not modify quests, mood or energy. Empty or non-walking quest responses get up to two short prompt retries. The normal home screen remains as it was; no general chat UI is introduced.
+
+## Benchmark and checks
+
+Build and install the app, let its automatic download finish, then run:
+
+```sh
+./gradlew connectedDebugAndroidTest
+adb logcat -d -s GrasslingLocalAI:I GemmaBenchmark:I
 ```
 
-O teste envia **“Estou cansado hoje.”** para `LocalAI.respond`, que chama o modelo Qwen via JNI. Ele verifica uma resposta não vazia, com até três frases e uma sugestão de atividade externa leve. O modelo não está mockado; o teste falha com uma mensagem clara se o arquivo não estiver instalado.
+`LocalAIInstrumentedTest` checks rejected partial/corrupt files, Gemma turn formatting, then runs six independent walking quests and three personality prompts through the actual JNI model. Native logs report model load time, prompt/cached/output token counts, TTFT, prompt tokens/s and decode tokens/s. Prompt throughput counts only evaluated tokens; decode throughput includes sampling and excludes prefill. TTFT excludes initial model load and includes tokenization, cache setup, prefill and the first sample.
 
-Na tela do app, o botão **Testar conversa** executa a mesma mensagem para uma verificação manual.
-
-## Verificação offline
-
-- O manifesto não declara `android.permission.INTERNET`.
-- A implementação `local_ai` usa apenas o arquivo em armazenamento interno e a biblioteca nativa; não contém cliente HTTP nem SDK de IA em nuvem.
-- Depois de baixar e importar o GGUF e compilar/instalar o app, desative Wi-Fi e dados móveis antes de usar **Testar conversa**. A resposta continua sendo gerada localmente.
+Benchmark results are documented separately under `docs/benchmarks/`. Emulator timings must not be interpreted as phone/ARM64 performance.

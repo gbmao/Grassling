@@ -11,22 +11,22 @@ class LlamaEngine(
 
     @Synchronized
     fun loadModel(path: String) {
-        releaseModel()
+        if (isLoaded) return
         handle = native.nativeLoadModel(
             path = path,
             contextSize = config.contextSize,
             threadCount = config.inferenceThreads,
         )
-        check(handle != 0L) { "llama.cpp não retornou um modelo carregado." }
+        check(handle != 0L) { "llama.cpp could not load the model." }
     }
 
     @Synchronized
     fun generate(prompt: String): String {
-        check(handle != 0L) { "O modelo local não foi carregado." }
+        check(handle != 0L) { "The local model has not been loaded." }
         return native.nativeGenerate(
             handle = handle,
             prompt = prompt,
-            maxTokens = config.maxOutputTokens,
+            maxTokens = config.maxOutputTokens.coerceIn(1, 80),
             temperature = config.temperature,
             topP = config.topP,
             topK = config.topK,

@@ -1,5 +1,7 @@
-# Qwen3-0.6B GGUF
+# Model weights are downloaded at runtime
 
-`Qwen3-0.6B.Q4_K_M.gguf` is the Q4_K_M quantization published by [QuantFactory](https://huggingface.co/QuantFactory/Qwen3-0.6B-GGUF), based on [Qwen/Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B). The model is licensed under Apache-2.0; see [LICENSE](LICENSE).
+Grassling uses `gemma-3-270m-it-Q8_0.gguf` from [ggml-org/gemma-3-270m-it-GGUF](https://huggingface.co/ggml-org/gemma-3-270m-it-GGUF).
 
-The Android app packages this file as an asset and copies it to its private model directory on first launch.
+This directory is not an Android assets source. Do not put model weights in the APK or commit them to Git. On first launch, the app downloads and verifies the model in its private `filesDir/models` directory. See [local AI documentation](../docs/local-ai.md).
+
+Model terms: https://ai.google.dev/gemma/terms.
