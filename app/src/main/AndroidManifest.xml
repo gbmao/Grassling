@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
@@ -11,6 +13,10 @@
         android:label="Grassling"
         android:supportsRtl="true"
         android:theme="@style/Theme.Grassling">
+        <service
+            android:name=".utils.StepCounterForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="health" />
         <activity
             android:name=".MainActivity"
             android:exported="true">

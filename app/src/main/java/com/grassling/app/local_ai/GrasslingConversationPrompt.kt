@@ -1,6 +1,7 @@
 package com.grassling.app.local_ai
 
 import com.grassling.app.data.QuestStorage
+import com.grassling.app.quest.QuestTrackingMode
 
 /** Builds a standalone Gemma turn for Grassling's periodic, context-aware dialogue. */
 class GrasslingConversationPrompt {
@@ -66,8 +67,14 @@ class GrasslingConversationPrompt {
             .joinToString(" ")
     }
 
-    private fun questDescription(quest: QuestStorage.StoredQuest): String =
-        "${plainText(quest.description).take(MAX_DESCRIPTION_LENGTH)} (${quest.targetSteps.coerceAtLeast(0)} steps)"
+    private fun questDescription(quest: QuestStorage.StoredQuest): String {
+        val progressContext = when (quest.trackingMode) {
+            QuestTrackingMode.STEPS -> quest.targetSteps.takeIf { it > 0 }?.let { " ($it steps)" }.orEmpty()
+            QuestTrackingMode.MINUTES -> quest.targetMinutes.takeIf { it > 0 }?.let { " ($it minutes)" }.orEmpty()
+            QuestTrackingMode.NONE -> ""
+        }
+        return plainText(quest.description).take(MAX_DESCRIPTION_LENGTH) + progressContext
+    }
 
     private fun plainText(value: String): String =
         value.replace(Regex("<[^>]*>|[\\r\\n]"), " ").replace(Regex("\\s+"), " ").trim()

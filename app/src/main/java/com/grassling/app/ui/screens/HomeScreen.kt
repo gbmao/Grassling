@@ -1,5 +1,11 @@
 package com.grassling.app.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.SystemClock
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -60,6 +66,7 @@ import com.grassling.app.local_ai.GameSnapshot
 import com.grassling.app.local_ai.QuestOption
 import com.grassling.app.monster.Monster
 import com.grassling.app.monster.MonsterEngine
+import com.grassling.app.quest.QuestTrackingMode
 import com.grassling.app.testandoAPP.EnergyController
 import com.grassling.app.ui.components.MonsterView
 import kotlinx.coroutines.CancellationException
@@ -69,7 +76,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import android.os.SystemClock
 import kotlin.math.roundToInt
 import kotlin.math.min
 
@@ -81,6 +87,7 @@ fun HomeScreen() {
     val energy = energyController.energy
     val context = LocalContext.current
     val application = remember(context) { context.applicationContext as? GrasslingApplication }
+    val stepCounter = application?.stepCounterManager
     val lifecycleOwner = LocalLifecycleOwner.current
     val conversationPrompt = remember { GrasslingConversationPrompt() }
     val latestEnergy by rememberUpdatedState(energy)
@@ -94,6 +101,9 @@ fun HomeScreen() {
     var isCheckingActiveQuest by remember { mutableStateOf(true) }
     var isSavingQuest by remember { mutableStateOf(false) }
     var questStorageUnavailable by remember { mutableStateOf(false) }
+    var pendingStepQuest by remember { mutableStateOf<QuestOption?>(null) }
+    var currentQuestStepCount by remember { mutableStateOf(0) }
+    var questHistoryRefreshKey by remember { mutableStateOf(0) }
 
     LaunchedEffect(context) {
         try {
@@ -106,6 +116,93 @@ fun HomeScreen() {
             questStorageUnavailable = true
         } finally {
             isCheckingActiveQuest = false
+        }
+    }
+
+    LaunchedEffect(lifecycleOwner, activeQuest?.creationDate, activeQuest?.trackingMode) {
+        val quest = activeQuest
+        if (quest?.trackingMode != QuestTrackingMode.STEPS) {
+            currentQuestStepCount = 0
+            return@LaunchedEffect
+        }
+        val counter = stepCounter ?: return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            if (!counter.isRunning()) counter.start()
+            while (currentCoroutineContext().isActive) {
+                currentQuestStepCount = quest.stepsAtAcceptance?.let { stepsAtAcceptance ->
+                    (withContext(Dispatchers.IO) { counter.getTotalSteps() } - stepsAtAcceptance)
+                        .coerceAtLeast(0)
+                } ?: counter.getSteps()
+                delay(STEP_PROGRESS_REFRESH_MS)
+            }
+        }
+    }
+
+    fun persistAcceptedQuest(quest: QuestOption) {
+        isSavingQuest = true
+        questError = null
+        coroutineScope.launch {
+            try {
+                val (wasAdded, currentQuest) = withContext(Dispatchers.IO) {
+                    val storage = QuestStorage(context.applicationContext)
+                    storage.addActiveQuest(
+                        QuestStorage.StoredQuest(
+                            description = quest.description,
+                            targetSteps = quest.targetSteps,
+                            targetMinutes = quest.targetMinutes,
+                            trackingMode = quest.trackingMode,
+                            stepsAtAcceptance = if (quest.trackingMode == QuestTrackingMode.STEPS) {
+                                stepCounter?.getTotalSteps() ?: 0
+                            } else {
+                                null
+                            },
+                        ),
+                    ) to storage.getActiveQuest()
+                }
+                activeQuest = currentQuest
+                if (wasAdded || currentQuest != null) {
+                    selectedQuest = null
+                    showQuestDialog = false
+                } else {
+                    questError = "Grassling couldn't save this quest. Please try again."
+                    if (quest.trackingMode == QuestTrackingMode.STEPS) stepCounter?.stop()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                questError = "Grassling couldn't save this quest. Please try again."
+                if (quest.trackingMode == QuestTrackingMode.STEPS) stepCounter?.stop()
+            } finally {
+                isSavingQuest = false
+            }
+        }
+    }
+
+    fun startQuestTracking(quest: QuestOption) {
+        if (quest.trackingMode == QuestTrackingMode.STEPS) {
+            val counter = stepCounter
+            counter?.start()
+            if (counter?.isRunning() != true) {
+                isSavingQuest = false
+                questError = "Step counting isn't available. Check the activity permission and step sensor."
+                return
+            }
+            currentQuestStepCount = counter.getSteps()
+        }
+        persistAcceptedQuest(quest)
+    }
+
+    val stepPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val quest = pendingStepQuest
+        pendingStepQuest = null
+        if (quest == null) return@rememberLauncherForActivityResult
+        if (granted) {
+            startQuestTracking(quest)
+        } else {
+            isSavingQuest = false
+            questError = "Allow activity recognition so Grassling can count your steps."
         }
     }
 
@@ -136,30 +233,44 @@ fun HomeScreen() {
     fun acceptSelectedQuest() {
         val quest = selectedQuest ?: return
         if (isSavingQuest || activeQuest != null) return
-        isSavingQuest = true
         questError = null
+        if (
+            quest.trackingMode == QuestTrackingMode.STEPS &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            context.checkSelfPermission(Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingStepQuest = quest
+            isSavingQuest = true
+            stepPermissionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+            return
+        }
+        if (quest.trackingMode == QuestTrackingMode.STEPS) {
+            isSavingQuest = true
+        }
+        startQuestTracking(quest)
+    }
+
+    fun finishQuest(creationDate: String) {
+        if (isSavingQuest) return
+        isSavingQuest = true
         coroutineScope.launch {
             try {
-                val (wasAdded, currentQuest) = withContext(Dispatchers.IO) {
-                    val storage = QuestStorage(context.applicationContext)
-                    storage.addActiveQuest(
-                        QuestStorage.StoredQuest(
-                            description = quest.description,
-                            targetSteps = quest.targetSteps,
-                        ),
-                    ) to storage.getActiveQuest()
+                val completedQuest = withContext(Dispatchers.IO) {
+                    QuestStorage(context.applicationContext).finishActiveQuestIfReady(
+                        creationDate = creationDate,
+                        currentTotalSteps = stepCounter?.getTotalSteps() ?: 0,
+                        currentSessionSteps = stepCounter?.getSteps() ?: 0,
+                    )
                 }
-                activeQuest = currentQuest
-                if (wasAdded || activeQuest != null) {
-                    selectedQuest = null
-                    showQuestDialog = false
-                } else {
-                    questError = "Grassling couldn't save this quest. Please try again."
+                if (completedQuest != null) {
+                    activeQuest = null
+                    currentQuestStepCount = 0
+                    questHistoryRefreshKey += 1
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                questError = "Grassling couldn't save this quest. Please try again."
+                questError = "Grassling couldn't finish this quest. Please try again."
             } finally {
                 isSavingQuest = false
             }
@@ -197,14 +308,15 @@ fun HomeScreen() {
                         completedQuests = completedQuests,
                         generateText = grasslingApplication.localAI::generateConversation,
                     )
-                    var response = generateSpeech()
-                    while (response == null) {
-                        response = generateSpeech()
+                    var response: String? = null
+                    repeat(3) {
+                        if (response == null) response = generateSpeech()
                     }
+                    val spokenResponse = response ?: "Hum..."
 
                     val shownAt = SystemClock.elapsedRealtime()
                     if (nextCallAt <= shownAt) nextCallAt = shownAt + periodMs
-                    speechBubble = response
+                    speechBubble = spokenResponse
                     val visibleUntilNextCall = (nextCallAt - shownAt).coerceAtLeast(0L)
                     delay(min(MAX_BUBBLE_DURATION_MS, visibleUntilNextCall))
                     speechBubble = null
@@ -222,7 +334,12 @@ fun HomeScreen() {
         gesturesEnabled = true,
         drawerContent = {
             ModalDrawerSheet {
-                QuestScreen(isVisible = drawerState.isOpen)
+                QuestScreen(
+                    isVisible = drawerState.isOpen,
+                    currentStepCount = currentQuestStepCount,
+                    refreshKey = questHistoryRefreshKey,
+                    onFinishQuest = ::finishQuest,
+                )
             }
         },
     ) {
@@ -419,7 +536,7 @@ fun HomeScreen() {
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     OutlinedButton(
-                        onClick = {},
+                        onClick = { showQuestDialog = false },
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("Decline")
@@ -440,6 +557,7 @@ fun HomeScreen() {
 
 private const val CONVERSATION_INTERVAL_MS = 10_000L
 private const val MAX_BUBBLE_DURATION_MS = 5_000L
+private const val STEP_PROGRESS_REFRESH_MS = 500L
 
 @Preview(showBackground = true)
 @Composable
