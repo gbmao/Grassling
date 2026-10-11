@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.grassling.app.BuildConfig
 import com.grassling.app.GrasslingApplication
 import com.grassling.app.data.QuestStorage
 import com.grassling.app.local_ai.GrasslingConversationPrompt
@@ -615,16 +616,18 @@ private fun EnergyMeter(energy: Int, onEnergyChange: (Float) -> Unit) {
                         .background(energyColor, RoundedCornerShape(50)),
                 )
             }
-            Slider(
-                value = normalizedEnergy.toFloat(),
-                onValueChange = onEnergyChange,
-                valueRange = 0f..100f,
-                colors = SliderDefaults.colors(
-                    thumbColor = energyColor,
-                    activeTrackColor = energyColor,
-                    inactiveTrackColor = Color(0xFFE7EEE4),
-                ),
-            )
+            if (BuildConfig.DEBUG) {
+                Slider(
+                    value = normalizedEnergy.toFloat(),
+                    onValueChange = onEnergyChange,
+                    valueRange = 0f..100f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = energyColor,
+                        activeTrackColor = energyColor,
+                        inactiveTrackColor = Color(0xFFE7EEE4),
+                    ),
+                )
+            }
         }
     }
 }

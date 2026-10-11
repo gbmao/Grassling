@@ -94,8 +94,8 @@ class EnergyManager(
         publishAndSave()
     }
 
-    /** Grants the fixed reward for completing a quest. */
-    fun rewardQuestCompletion(): Int = addEnergy(QUEST_COMPLETION_REWARD)
+    /** Applies the fixed energy cost for completing a quest. */
+    fun rewardQuestCompletion(): Int = removeEnergy(QUEST_COMPLETION_COST)
 
     private fun refreshEnergy(now: Long): Int = synchronized(lock) {
         refreshEnergyLocked(now)
@@ -148,7 +148,7 @@ class EnergyManager(
         const val ENERGY_RULE_VERSION = 3
         const val STEP_ENERGY_RULE_VERSION = 2
         const val STEPS_PER_ENERGY_POINT = 11
-        const val QUEST_COMPLETION_REWARD = 10
+        const val QUEST_COMPLETION_COST = 10
         const val ENERGY_DURATION_MILLIS = 24 * 60 * 60 * 1_000L
         val ENERGY_GAIN_PER_MILLISECOND = MAX_ENERGY.toDouble() / ENERGY_DURATION_MILLIS
     }
