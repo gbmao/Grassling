@@ -103,6 +103,7 @@ fun HomeScreen() {
     var questStorageUnavailable by remember { mutableStateOf(false) }
     var pendingStepQuest by remember { mutableStateOf<QuestOption?>(null) }
     var currentQuestStepCount by remember { mutableStateOf(0) }
+    var questHistoryRefreshKey by remember { mutableStateOf(0) }
 
     LaunchedEffect(context) {
         try {
@@ -128,7 +129,10 @@ fun HomeScreen() {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             if (!counter.isRunning()) counter.start()
             while (currentCoroutineContext().isActive) {
-                currentQuestStepCount = counter.getSteps()
+                currentQuestStepCount = quest.stepsAtAcceptance?.let { stepsAtAcceptance ->
+                    (withContext(Dispatchers.IO) { counter.getTotalSteps() } - stepsAtAcceptance)
+                        .coerceAtLeast(0)
+                } ?: counter.getSteps()
                 delay(STEP_PROGRESS_REFRESH_MS)
             }
         }
@@ -147,6 +151,11 @@ fun HomeScreen() {
                             targetSteps = quest.targetSteps,
                             targetMinutes = quest.targetMinutes,
                             trackingMode = quest.trackingMode,
+                            stepsAtAcceptance = if (quest.trackingMode == QuestTrackingMode.STEPS) {
+                                stepCounter?.getTotalSteps() ?: 0
+                            } else {
+                                null
+                            },
                         ),
                     ) to storage.getActiveQuest()
                 }
@@ -241,6 +250,33 @@ fun HomeScreen() {
         startQuestTracking(quest)
     }
 
+    fun finishQuest(creationDate: String) {
+        if (isSavingQuest) return
+        isSavingQuest = true
+        coroutineScope.launch {
+            try {
+                val completedQuest = withContext(Dispatchers.IO) {
+                    QuestStorage(context.applicationContext).finishActiveQuestIfReady(
+                        creationDate = creationDate,
+                        currentTotalSteps = stepCounter?.getTotalSteps() ?: 0,
+                        currentSessionSteps = stepCounter?.getSteps() ?: 0,
+                    )
+                }
+                if (completedQuest != null) {
+                    activeQuest = null
+                    currentQuestStepCount = 0
+                    questHistoryRefreshKey += 1
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                questError = "Grassling couldn't finish this quest. Please try again."
+            } finally {
+                isSavingQuest = false
+            }
+        }
+    }
+
     LaunchedEffect(lifecycleOwner, application, conversationPrompt) {
         val grasslingApplication = application ?: return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -301,6 +337,8 @@ fun HomeScreen() {
                 QuestScreen(
                     isVisible = drawerState.isOpen,
                     currentStepCount = currentQuestStepCount,
+                    refreshKey = questHistoryRefreshKey,
+                    onFinishQuest = ::finishQuest,
                 )
             }
         },
@@ -498,7 +536,7 @@ fun HomeScreen() {
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     OutlinedButton(
-                        onClick = {},
+                        onClick = { showQuestDialog = false },
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("Decline")

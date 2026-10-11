@@ -20,6 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,14 +55,19 @@ private val SoftGreen = Color(0xFFE6F2E1)
 private val QuestBackground = Color(0xFFF5F8F2)
 
 @Composable
-fun QuestScreen(isVisible: Boolean, currentStepCount: Int) {
+fun QuestScreen(
+    isVisible: Boolean,
+    currentStepCount: Int,
+    refreshKey: Int,
+    onFinishQuest: (String) -> Unit,
+) {
     val context = LocalContext.current
     var activeQuest by remember { mutableStateOf<QuestStorage.StoredQuest?>(null) }
     var completedQuests by remember { mutableStateOf(emptyList<QuestStorage.StoredQuest>()) }
     var isLoading by remember { mutableStateOf(false) }
     var elapsedQuestSeconds by remember { mutableStateOf(0L) }
 
-    LaunchedEffect(isVisible, context) {
+    LaunchedEffect(isVisible, context, refreshKey) {
         if (isVisible) {
             isLoading = true
             val quests = withContext(Dispatchers.IO) {
@@ -152,6 +159,7 @@ fun QuestScreen(isVisible: Boolean, currentStepCount: Int) {
                                 quest = quest,
                                 currentStepCount = currentStepCount,
                                 elapsedSeconds = elapsedQuestSeconds,
+                                onFinishQuest = { onFinishQuest(quest.creationDate) },
                             )
                         }
                     }
@@ -233,6 +241,7 @@ private fun InProgressSection(
     quest: QuestStorage.StoredQuest,
     currentStepCount: Int,
     elapsedSeconds: Long,
+    onFinishQuest: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
@@ -294,6 +303,23 @@ private fun InProgressSection(
                         )
                     }
                     QuestTrackingMode.NONE -> Unit
+                }
+                if (
+                    quest.trackingMode != QuestTrackingMode.STEPS ||
+                    (quest.targetSteps > 0 && currentStepCount >= quest.targetSteps)
+                ) {
+                    Button(
+                        onClick = onFinishQuest,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ForestGreen),
+                    ) {
+                        Text(
+                            text = "Finish quest",
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
         }

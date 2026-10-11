@@ -85,6 +85,8 @@ class StepCounterManager(context: Context) {
 
     fun getSteps(): Int = synchronized(lock) { relativeSteps }
 
+    fun getTotalSteps(): Int = stepStorage.loadSteps().totalSteps
+
     fun stop() {
         synchronized(lock) {
             sensorManager.unregisterListener(listener)
