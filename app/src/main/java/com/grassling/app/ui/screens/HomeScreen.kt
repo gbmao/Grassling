@@ -121,7 +121,6 @@ fun HomeScreen() {
     LaunchedEffect(lifecycleOwner, activeQuest?.creationDate, activeQuest?.trackingMode) {
         val quest = activeQuest
         if (quest?.trackingMode != QuestTrackingMode.STEPS) {
-            if (quest != null) stepCounter?.stop()
             currentQuestStepCount = 0
             return@LaunchedEffect
         }

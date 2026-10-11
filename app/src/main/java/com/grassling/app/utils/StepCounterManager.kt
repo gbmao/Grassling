@@ -8,26 +8,42 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
+import com.grassling.app.data.StepStorage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 
 class StepCounterManager(context: Context) {
     private val appContext = context.applicationContext
+    private val stepStorage = StepStorage(appContext)
     private val sensorManager =
         appContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val stepCounterSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
     private val lock = Any()
+    private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val sensorReadings = Channel<Int>(Channel.UNLIMITED)
 
     private var running = false
     private var initialSensorSteps: Int? = null
     private var relativeSteps = 0
+
+    init {
+        persistenceScope.launch {
+            for (sensorSteps in sensorReadings) {
+                runCatching { stepStorage.recordSensorSteps(sensorSteps) }
+            }
+        }
+    }
 
     private val listener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
             if (event.sensor.type != Sensor.TYPE_STEP_COUNTER) return
             val sensorSteps = event.values.firstOrNull()?.toInt()?.coerceAtLeast(0) ?: return
 
-            synchronized(lock) {
-                if (!running) return
-
+            val shouldPersist = synchronized(lock) {
+                if (!running) return@synchronized false
                 val initialSteps = initialSensorSteps
                 if (initialSteps == null || sensorSteps < initialSteps) {
                     initialSensorSteps = sensorSteps
@@ -35,7 +51,9 @@ class StepCounterManager(context: Context) {
                 } else {
                     relativeSteps = sensorSteps - initialSteps
                 }
+                true
             }
+            if (shouldPersist) sensorReadings.trySend(sensorSteps)
         }
 
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
