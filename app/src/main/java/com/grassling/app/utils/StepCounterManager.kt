@@ -9,13 +9,14 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
 import com.grassling.app.data.StepStorage
+import com.grassling.app.monster.EnergyManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 
-class StepCounterManager(context: Context) {
+class StepCounterManager(context: Context, private val energyManager: EnergyManager) {
     private val appContext = context.applicationContext
     private val stepStorage = StepStorage(appContext)
     private val sensorManager =
@@ -32,7 +33,10 @@ class StepCounterManager(context: Context) {
     init {
         persistenceScope.launch {
             for (sensorSteps in sensorReadings) {
-                runCatching { stepStorage.recordSensorSteps(sensorSteps) }
+                val totalSteps = runCatching { stepStorage.recordSensorSteps(sensorSteps) }
+                    .getOrNull()
+                    ?: continue
+                energyManager.recordCumulativeSteps(totalSteps)
             }
         }
     }
