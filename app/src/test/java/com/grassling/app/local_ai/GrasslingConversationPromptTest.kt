@@ -1,6 +1,7 @@
 package com.grassling.app.local_ai
 
 import com.grassling.app.data.QuestStorage
+import com.grassling.app.quest.QuestTrackingMode
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -13,15 +14,50 @@ class GrasslingConversationPromptTest {
     private val prompts = GrasslingConversationPrompt()
 
     @Test
+    fun acceptedQuestReactionPromptContainsOnlyMoodAndAcceptedQuestContext() = runBlocking {
+        var receivedPrompt = ""
+        val reaction = prompts.generateAcceptedQuestReaction(
+            mood = "SLEEPING",
+            questDescription = "Walk 750 steps",
+        ) { prompt ->
+            receivedPrompt = prompt
+            Result.success("I might need a nap. Let's go walk now.")
+        }
+
+        assertEquals(
+            """
+                <start_of_turn>user
+                You are Grassling, a small virtual creature.
+
+                You feel sleepy, drowsy, quiet, low-energy.
+
+                The user just accepted this quest:
+                "Walk 750 steps"
+
+                React naturally in one short sentence.
+
+                Reply only with Grassling's sentence.
+                <end_of_turn>
+                <start_of_turn>model
+                Grassling:
+            """.trimIndent(),
+            receivedPrompt,
+        )
+        assertFalse(receivedPrompt.contains("Energy:"))
+        assertEquals("I might need a nap.", reaction)
+    }
+
+    @Test
     fun generateLineCallsTheConversationGeneratorWithCurrentGameContext() = runBlocking {
         val active = listOf(
-            QuestStorage.StoredQuest("Walk 500 steps", targetSteps = 500),
+            QuestStorage.StoredQuest("Walk 500 steps", targetSteps = 500, trackingMode = QuestTrackingMode.STEPS),
             QuestStorage.StoredQuest("A second active walk", targetSteps = 750),
         )
         val completed = listOf(
             QuestStorage.StoredQuest(
                 description = "Walk around the block",
                 targetSteps = 300,
+                trackingMode = QuestTrackingMode.STEPS,
                 completed = true,
                 completedAt = "2026-10-10T10:00:00.000Z",
             ),

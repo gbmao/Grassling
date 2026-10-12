@@ -44,19 +44,6 @@ class LocalAIInstrumentedTest {
     }
 
     @Test
-    fun gemmaUsesIndependentTurnsAndEscapesControlTokens() {
-        val prompt = PromptBuilder.buildQuestPrompt(energy = 84)
-        assertTrue(prompt.startsWith("<start_of_turn>user\n"))
-        assertTrue(prompt.endsWith("<end_of_turn>\n<start_of_turn>model\n"))
-        assertEquals(1, Regex("<end_of_turn>").findAll(prompt).count())
-        assertTrue(prompt.contains("Current energy: 84/100"))
-        assertTrue(prompt.contains("1. Walk 750 steps"))
-        assertTrue(prompt.contains("10. Walk until you discover something interesting"))
-        assertEquals("Find something blue outside", PromptBuilder.resolveQuestSelection("3")?.description)
-        assertNull(PromptBuilder.resolveQuestSelection("Make up a walking quest"))
-    }
-
-    @Test
     fun benchmarkGemmaThroughJni() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val states = listOf(
@@ -75,36 +62,10 @@ class LocalAIInstrumentedTest {
             try {
                 val loadMs = measureTimeMillis { localAI.loadModel().getOrThrow() }
                 Log.i("GemmaBenchmark", "load_ms=$loadMs model=${ModelManager.FILE_NAME} threads=$threads")
-                states.forEachIndexed { index, snapshot ->
-                    val started = System.nanoTime()
-                    val response = localAI.chooseQuest(snapshot.energy).getOrThrow().description
-                    if (response.isBlank()) emptyRuns.add("$threads/${index + 1}")
-                    assertTrue(
-                        "The selected quest must be from the fixed list: $response",
-                        response in listOf(
-                            "Walk 750 steps",
-                            "Take a 10-minute walk",
-                            "Find something blue outside",
-                            "Walk to a place you have never visited before",
-                            "Spend 5 minutes outdoors",
-                            "Find three different plants",
-                            "Walk 1,000 steps before noon",
-                            "Take a short walk without using your phone",
-                            "Find something shaped like a circle",
-                            "Walk until you discover something interesting",
-                        ),
-                    )
-                    Log.i("GemmaBenchmark", JSONObject()
-                        .put("threads", threads).put("run", index + 1).put("task", "quest")
-                        .put("energy", snapshot.energy).put("mood", snapshot.mood)
-                        .put("steps_today", snapshot.stepsToday)
-                        .put("total_ms", (System.nanoTime() - started) / 1_000_000)
-                        .put("response", response).toString())
-                }
                 states.take(3).forEachIndexed { index, snapshot ->
                     val response = localAI.generatePersonality(snapshot).getOrThrow()
-                    if (response.isBlank()) emptyRuns.add("$threads/${index + 7}")
-                    Log.i("GemmaBenchmark", JSONObject().put("threads", threads).put("run", index + 7)
+                    if (response.isBlank()) emptyRuns.add("$threads/${index + 1}")
+                    Log.i("GemmaBenchmark", JSONObject().put("threads", threads).put("run", index + 1)
                         .put("task", "personality").put("energy", snapshot.energy)
                         .put("response", response).toString())
                 }

@@ -30,8 +30,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedButton
@@ -79,7 +77,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.roundToInt
 import kotlin.math.min
 
 @Composable
@@ -177,6 +174,29 @@ fun HomeScreen() {
                 if (wasAdded || currentQuest != null) {
                     selectedQuest = null
                     showQuestDialog = false
+                    if (wasAdded) {
+                        val localAI = application?.localAI
+                        if (localAI != null) {
+                            val reaction = try {
+                                conversationPrompt.generateAcceptedQuestReaction(
+                                    mood = monsterEngine.moodForEnergy(latestEnergy).name,
+                                    questDescription = currentQuest?.description ?: quest.description,
+                                    generateText = localAI::generateConversation,
+                                )
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                null
+                            }
+                            if (reaction != null) {
+                                speechBubble = reaction
+                                coroutineScope.launch {
+                                    delay(MAX_BUBBLE_DURATION_MS)
+                                    if (speechBubble == reaction) speechBubble = null
+                                }
+                            }
+                        }
+                    }
                 } else {
                     questError = "Grassling couldn't save this quest. Please try again."
                     if (quest.trackingMode == QuestTrackingMode.STEPS) stepCounter?.stop()
@@ -412,10 +432,7 @@ fun HomeScreen() {
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                EnergyMeter(
-                    energy = energy,
-                    onEnergyChange = { energyManager.setEnergy(it.roundToInt()) },
-                )
+                EnergyMeter(energy = energy)
             }
             Canvas(
                 modifier = Modifier
@@ -565,7 +582,7 @@ fun HomeScreen() {
 }
 
 @Composable
-private fun EnergyMeter(energy: Int, onEnergyChange: (Float) -> Unit) {
+private fun EnergyMeter(energy: Int) {
     val normalizedEnergy = energy.coerceIn(0, 100)
     val energyColor = when (normalizedEnergy) {
         in 0..59 -> Color(0xFF4F8A54)
@@ -615,16 +632,6 @@ private fun EnergyMeter(energy: Int, onEnergyChange: (Float) -> Unit) {
                         .background(energyColor, RoundedCornerShape(50)),
                 )
             }
-            Slider(
-                value = normalizedEnergy.toFloat(),
-                onValueChange = onEnergyChange,
-                valueRange = 0f..100f,
-                colors = SliderDefaults.colors(
-                    thumbColor = energyColor,
-                    activeTrackColor = energyColor,
-                    inactiveTrackColor = Color(0xFFE7EEE4),
-                ),
-            )
         }
     }
 }
