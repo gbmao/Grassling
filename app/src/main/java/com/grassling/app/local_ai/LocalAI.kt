@@ -34,22 +34,9 @@ class LlamaLocalAI(context: Context, private val config: AIConfig = AIConfig()) 
     /** Generates a standalone conversation turn using a caller-built Grassling prompt. */
     suspend fun generateConversation(prompt: String): Result<String> = generate(prompt, prompt)
 
-    override suspend fun chooseQuest(energy: Int): Result<QuestOption> = withContext(Dispatchers.Default) {
-        result {
-            var selection: QuestOption? = null
-            repeat(3) { attempt ->
-                if (selection == null) {
-                    val prompt = if (attempt == 0) {
-                        PromptBuilder.buildQuestPrompt(energy)
-                    } else {
-                        PromptBuilder.buildQuestFallbackPrompt(energy)
-                    }
-                    selection = PromptBuilder.resolveQuestSelection(engine.generate(prompt))
-                }
-            }
-            checkNotNull(selection) { "Grassling couldn't choose a quest. Please try again." }
-        }
-    }
+    @Suppress("UNUSED_PARAMETER")
+    override suspend fun chooseQuest(energy: Int): Result<QuestOption> =
+        Result.success(PromptBuilder.randomQuest())
 
     private suspend fun generate(
         prompt: String,

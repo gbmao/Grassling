@@ -304,10 +304,14 @@ private fun InProgressSection(
                     }
                     QuestTrackingMode.NONE -> Unit
                 }
-                if (
-                    quest.trackingMode != QuestTrackingMode.STEPS ||
-                    (quest.targetSteps > 0 && currentStepCount >= quest.targetSteps)
-                ) {
+                val canFinishQuest = when (quest.trackingMode) {
+                    QuestTrackingMode.STEPS ->
+                        quest.targetSteps > 0 && currentStepCount >= quest.targetSteps
+                    QuestTrackingMode.MINUTES ->
+                        quest.targetMinutes > 0 && elapsedSeconds >= quest.targetMinutes * 60L
+                    QuestTrackingMode.NONE -> true
+                }
+                if (canFinishQuest) {
                     Button(
                         onClick = onFinishQuest,
                         modifier = Modifier.fillMaxWidth(),

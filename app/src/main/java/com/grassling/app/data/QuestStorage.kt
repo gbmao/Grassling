@@ -5,6 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import com.grassling.app.quest.QuestTrackingMode
 import java.io.File
+import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -147,7 +148,12 @@ class QuestStorage(context: Context) {
                 }
                 quest.targetSteps > 0 && stepsWalked >= quest.targetSteps
             }
-            QuestTrackingMode.MINUTES, QuestTrackingMode.NONE -> true
+            QuestTrackingMode.MINUTES -> hasQuestDurationElapsed(
+                creationDate = quest.creationDate,
+                targetMinutes = quest.targetMinutes,
+                nowMillis = System.currentTimeMillis(),
+            )
+            QuestTrackingMode.NONE -> true
         }
         if (!canFinish) return null
 
@@ -170,5 +176,24 @@ class QuestStorage(context: Context) {
             ?.get(1)
             ?.toIntOrNull()
             ?: 0
+
+    private fun hasQuestDurationElapsed(
+        creationDate: String,
+        targetMinutes: Int,
+        nowMillis: Long,
+    ): Boolean {
+        if (targetMinutes <= 0) return false
+        val formatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+            isLenient = false
+        }
+        val position = ParsePosition(0)
+        val createdAt = formatter.parse(creationDate, position)?.time ?: return false
+        if (position.index != creationDate.length) return false
+
+        val elapsedMillis = nowMillis - createdAt
+        val targetMillis = targetMinutes.toLong() * 60_000L
+        return elapsedMillis >= targetMillis
+    }
 
 }

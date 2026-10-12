@@ -16,39 +16,35 @@ internal object PromptBuilder {
         QuestOption(1, "Walk 750 steps", QuestTrackingMode.STEPS, targetSteps = 750),
         QuestOption(2, "Take a 10-minute walk", QuestTrackingMode.MINUTES, targetMinutes = 10),
         QuestOption(3, "Find something blue outside"),
-        QuestOption(4, "Walk to a place you have never visited before", QuestTrackingMode.STEPS),
+        QuestOption(
+            4,
+            "Walk 1,000 steps to a place you have never visited before",
+            QuestTrackingMode.STEPS,
+            targetSteps = 1_000,
+        ),
         QuestOption(5, "Spend 5 minutes outdoors", QuestTrackingMode.MINUTES, targetMinutes = 5),
         QuestOption(6, "Find three different plants"),
         QuestOption(7, "Walk 1,000 steps before noon", QuestTrackingMode.STEPS, targetSteps = 1_000),
-        QuestOption(8, "Take a short walk without using your phone", QuestTrackingMode.STEPS),
+        QuestOption(
+            8,
+            "Take a short 500-step walk without using your phone",
+            QuestTrackingMode.STEPS,
+            targetSteps = 500,
+        ),
         QuestOption(9, "Find something shaped like a circle"),
-        QuestOption(10, "Walk until you discover something interesting", QuestTrackingMode.STEPS),
+        QuestOption(
+            10,
+            "Walk 750 steps and look for something interesting",
+            QuestTrackingMode.STEPS,
+            targetSteps = 750,
+        ),
     )
 
-    fun buildQuestPrompt(energy: Int): String = buildQuestSelectionPrompt(energy, isRetry = false)
+    fun randomQuestNumber(): Int = (1..10).random()
 
-    fun buildQuestFallbackPrompt(energy: Int): String = buildQuestSelectionPrompt(energy, isRetry = true)
-
-    fun resolveQuestSelection(response: String): QuestOption? {
-        val number = Regex("^(?:quest|option)?\\s*(10|[1-9])\\.?$", RegexOption.IGNORE_CASE)
-            .matchEntire(response.trim())
-            ?.groupValues
-            ?.get(1)
-            ?.toIntOrNull()
-            ?: return null
-        return questOptions.firstOrNull { it.number == number }
-    }
-
-    private fun buildQuestSelectionPrompt(energy: Int, isRetry: Boolean): String = buildString {
-        append("<start_of_turn>user\n")
-        appendLine("You are Grassling. Choose which existing quest to ask for based on your current energy.")
-        appendLine("Higher energy means choose a longer walk or more steps. Lower energy means choose a shorter, easier quest.")
-        appendLine("Current energy: ${energy.coerceIn(0, 100)}/100")
-        appendLine("Available quests:")
-        questOptions.forEach { appendLine("${it.number}. ${it.description}") }
-        if (isRetry) appendLine("Select one number from 1 to 10. Output nothing else.")
-        appendLine("Do not create, rewrite, or describe a quest. Reply with only the chosen quest number.")
-        append("<end_of_turn>\n<start_of_turn>model\n")
+    fun randomQuest(): QuestOption {
+        val number = randomQuestNumber()
+        return questOptions.first { it.number == number }
     }
 
     fun buildPersonalityPrompt(snapshot: GameSnapshot): String =

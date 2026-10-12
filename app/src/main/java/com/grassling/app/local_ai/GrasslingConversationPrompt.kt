@@ -5,6 +5,21 @@ import com.grassling.app.quest.QuestTrackingMode
 
 /** Builds a standalone Gemma turn for Grassling's periodic, context-aware dialogue. */
 class GrasslingConversationPrompt {
+    fun buildAcceptedQuestReactionPrompt(mood: String, questDescription: String): String = buildString {
+        append("<start_of_turn>user\n")
+        appendLine("You are Grassling, a small virtual creature.")
+        appendLine()
+        appendLine("You feel ${moodBehavior(mood)}.")
+        appendLine()
+        appendLine("The user just accepted this quest:")
+        appendLine("\"${plainText(questDescription).take(MAX_DESCRIPTION_LENGTH)}\"")
+        appendLine()
+        appendLine("React naturally in one short sentence.")
+        appendLine()
+        appendLine("Reply only with Grassling's sentence.")
+        append("<end_of_turn>\n<start_of_turn>model\nGrassling:")
+    }
+
     fun build(
         mood: String,
         energy: Int,
@@ -52,8 +67,23 @@ class GrasslingConversationPrompt {
             ?.takeIf(String::isNotBlank)
     }
 
+    suspend fun generateAcceptedQuestReaction(
+        mood: String,
+        questDescription: String,
+        generateText: suspend (String) -> Result<String>,
+    ): String? {
+        val response = generateText(buildAcceptedQuestReactionPrompt(mood, questDescription)).getOrNull()
+        return response
+            ?.let(::limitToOneSentence)
+            ?.takeIf(String::isNotBlank)
+    }
+
+    fun limitToOneSentence(response: String): String = limitToSentences(response, 1)
+
     /** Keeps generated text within the UI's two-sentence limit even if the model ignores it. */
-    fun limitToTwoSentences(response: String): String {
+    fun limitToTwoSentences(response: String): String = limitToSentences(response, 2)
+
+    private fun limitToSentences(response: String, maximum: Int): String {
         val clean = response
             .replace(Regex("<[^>]*>"), " ")
             .replace(Regex("\\s+"), " ")
@@ -63,7 +93,7 @@ class GrasslingConversationPrompt {
             .asSequence()
             .map(String::trim)
             .filter(String::isNotEmpty)
-            .take(2)
+            .take(maximum)
             .joinToString(" ")
     }
 
